@@ -1,90 +1,68 @@
 import QtQuick
-import QtQuick.Layouts
 import QtQuick.Controls.Basic
-
+import QtQuick.Dialogs
+import MyCodeApp
 
 ApplicationWindow {
     id: window
-    width: 640
-    height: 480
-    minimumWidth: 200
-    minimumHeight: 250
+    width: 1000
+    height: 700
     visible: true
-    title: qsTr("Hello World")
-    property bool lightMode: Application.styleHints.colorScheme === Qt.Light
-    property color reallyDark: "#1f1f1f"
-    property color dark: "#262626"
-    property color reallyLight: "#e7e7e7"
-    property color light: "#e0e0e0"
+    title: qsTr("Spike: рендер редактора(Этап 0)")
 
-    GridLayout {
-        id: grid
-        columns: width < 400 ? 1 : 2
-        rowSpacing: 0
-        columnSpacing: 0
-        anchors.fill: parent
+    TextSpikeItem {
+        id: editor
+        objectName: "editor" // C++ ищет редактор по этому имени (main.cpp)
+        anchors.top: toolbar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+    }
 
-        Rectangle {
-            id: rectangle1
-            color: window.lightMode ? window.reallyLight : window.reallyDark
-            Layout.fillHeight: true
-            Layout.fillWidth: true
+    WheelHandler {
+        onWheel: (event) => {
+                     editor.scrollY = Math.max(0, editor.scrollY -
+                     event.angleDelta.y * 0.5)
+                 }
+    }
 
-            ColumnLayout {
-                anchors.fill: parent
-                Layout.alignment: Qt.AlignHCenter | Qt.AlignTop
-
-                Label {
-                    id: text1
-                    color: window.lightMode ? window.dark : window.light
-                    font.pixelSize: 120
-                    fontSizeMode: Text.Fit
-                    text: qsTr("Hello World")
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.margins: 16
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-            }
-        }
-
-        Rectangle {
-            id: rectangle2
-            color: window.lightMode ? window.light : window.dark
-            Layout.fillHeight: true
-            Layout.fillWidth: true
-
-            ColumnLayout {
-                anchors.fill: parent
-                Layout.alignment: Qt.AlignHCenter | Qt.AlignTop
-
-                Button {
-                    id: button1
-                    text: window.lightMode ? qsTr("\u263D  Dark mode")
-                                           : qsTr("\u263C  Light mode")
-                    Layout.bottomMargin: 16
-                    Layout.alignment: Qt.AlignHCenter | Qt.AlignBottom
-
-                    contentItem: Text {
-                        text: button1.text
-                        color: window.lightMode ? window.light : window.dark
-                        font: button1.font
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    background: Rectangle {
-                        implicitWidth: 120
-                        implicitHeight: 36
-                        radius: 8
-                        color: window.lightMode ? window.dark : window.light
-                    }
-
-                    onClicked: window.lightMode = !window.lightMode
-                }
-            }
+    FileDialog {
+        id: fileDialog
+        onAccepted: {
+            console.log("DIAG: файл выбран:", selectedFile)
+            editor.filePath = selectedFile
         }
     }
 
+    Rectangle {
+        id: toolbar
+        height: 40
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        color: "#2d2d2d"
+
+        Row {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.leftMargin: 8
+            spacing: 12
+
+            Button {
+                text: qsTr("Открыть файл ... ")
+                onClicked: {
+                    console.log("DIAG: кнопка нажата, открываю диалог")
+                    fileDialog.open()
+                }
+            }
+
+            Label {
+                anchors.verticalCenter: parent.verticalCenter
+                color: "#aaaaaa"
+                text: editor.filePath === "" ? qsTr("Файл не выбран")
+                    : editor.filePath + "| scrollY "
+                    + editor.scrollY.toFixed(0)
+            }
+        }
+    }
 }
