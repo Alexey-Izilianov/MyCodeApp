@@ -139,6 +139,7 @@ void EditorView::paste()
     m_cursor = TextBuffer::clampPosition(
         {m_cursor.line, m_cursor.column}, m_document->buffer());
     m_document->buffer().insertText({m_cursor.line, m_cursor.column}, text);
+    moveCursorAfterInsert(text);
     markEdited();
 }
 
@@ -193,11 +194,28 @@ void EditorView::ensureCursorVisible()
     emit scrollYChanged();
 }
 
+void EditorView::moveCursorAfterInsert(const QString &text)
+{
+    const QChar newline = QLatin1Char('\n');
+    int line = m_cursor.line, column = m_cursor.column;
+    const int idx = text.lastIndexOf(newline);
+    if (idx == -1) {
+        column += text.size();
+    } else {
+        line += text.count(newline);
+        column = text.size() - idx - 1;
+    }
+    m_cursor = TextBuffer::clampPosition({line, column},
+                                         m_document->buffer());
+}
+
 void EditorView::deleteSelection()
 {
-    if (!(m_cursor == m_anchor))
-        m_document->buffer().removeText(
-            qMin(m_anchor, m_cursor), qMax(m_anchor, m_cursor));
+    if (!(m_cursor == m_anchor)) {
+        const Cursor a = qMin(m_anchor, m_cursor);
+        m_document->buffer().removeText(a, qMax(m_anchor, m_cursor));
+        m_cursor = a; // курсор в начало удалённого фрагмента
+    }
 }
 
 void EditorView::markEdited()
@@ -317,6 +335,7 @@ void EditorView::keyPressEvent(QKeyEvent *event)
                 {m_cursor.line, m_cursor.column}, m_document->buffer());
             m_document->buffer().insertText(
                 {m_cursor.line, m_cursor.column}, event->text());
+            moveCursorAfterInsert(event->text());
             markEdited();
         } else {
             return QQuickItem::keyPressEvent(event);
@@ -389,6 +408,8 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         root->appendChildNode(m_clip);
         m_scrollTransform = new QSGTransformNode;
         m_clip->appendChildNode(m_scrollTransform);
+        m_selLayer = new QSGNode; // первый ребёнок — ниже текстовых нод
+        m_scrollTransform->appendChildNode(m_selLayer);
         m_caret = new QSGSimpleRectNode(QRectF(), kCaretColor);
         root->appendChildNode(m_caret); // каретка вне клипа — всегда видна
     }
@@ -483,14 +504,14 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 
     // Выделение: прямоугольник на каждую видимую выбранную строку.
     for (QSGSimpleRectNode *n : m_selPool) {
-        m_scrollTransform->removeChildNode(n);
+        m_selLayer->removeChildNode(n);
         delete n;
     }
     m_selPool.clear();
 
     for (const QRectF &r : selRects) {
         QSGSimpleRectNode *rect = new QSGSimpleRectNode(r, kSelectionColor);
-        m_scrollTransform->appendChildNode(rect);
+        m_selLayer->appendChildNode(rect);
         m_selPool.append(rect);
     }
 

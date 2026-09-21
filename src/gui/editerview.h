@@ -68,6 +68,7 @@ private:
 
     void moveCursor(int dline, int dcol, bool extend);
     void ensureCursorVisible();
+    void moveCursorAfterInsert(const QString &text);
     void deleteSelection();
     void markEdited();
     qreal contentHeight() const;
@@ -89,6 +90,7 @@ private:
     QSGSimpleRectNode *m_background = nullptr;
     QSGClipNode *m_clip = nullptr;
     QSGTransformNode *m_scrollTransform = nullptr;
+    QSGNode *m_selLayer = nullptr; // выделение рисуется ДО текстовых нод
     QVector<QSGTextNode *> m_textPool;
     QVector<QSGSimpleRectNode *> m_selPool;
     QSGSimpleRectNode *m_caret = nullptr;
