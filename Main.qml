@@ -8,15 +8,18 @@ ApplicationWindow {
     width: 1000
     height: 700
     visible: true
-    title: qsTr("Spike 2: рендер редактора на QSG (Этап 0)")
+    title: qsTr("MyCodeApp (M1)")
 
-    TextSpikeQsgItem {
+    EditorView {
         id: editor
-        objectName: "editor" // C++ ищет редактор по этому имени (main.cpp)
+        objectName: "editor" // main.cpp открывает файл из аргумента
+        focus: true
         anchors.top: toolbar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.bottom: statusbar.top
+
+        onErrorOccurred: (message) => console.log("ERROR:", message)
     }
 
     WheelHandler {
@@ -26,16 +29,6 @@ ApplicationWindow {
                  }
     }
 
-    // Автоскролл: равномерное движение как при прокрутке, чтобы FPS
-    // замерялся одинаково без участия человека (кнопка или -autoscroll).
-    Timer {
-        id: autoScrollTimer
-        interval: 16
-        running: editor.autoScroll
-        repeat: true
-        onTriggered: editor.scrollY += 3
-    }
-
     FileDialog {
         id: fileDialog
         onAccepted: editor.filePath = selectedFile
@@ -43,7 +36,7 @@ ApplicationWindow {
 
     Rectangle {
         id: toolbar
-        height: 40
+        height: 36
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
@@ -56,21 +49,40 @@ ApplicationWindow {
             spacing: 12
 
             Button {
-                text: qsTr("Открыть файл ...")
+                text: qsTr("Открыть")
                 onClicked: fileDialog.open()
             }
-
             Button {
-                text: editor.autoScroll ? qsTr("Стоп автоскролл") : qsTr("Автоскролл")
-                onClicked: editor.autoScroll = !editor.autoScroll
+                text: qsTr("Сохранить")
+                onClicked: editor.save()
             }
+        }
+    }
 
-            Label {
-                anchors.verticalCenter: parent.verticalCenter
-                color: "#aaaaaa"
-                text: editor.filePath === "" ? qsTr("Файл не выбран")
-                    : editor.filePath + " | scrollY " + editor.scrollY.toFixed(0)
-            }
+    Rectangle {
+        id: statusbar
+        height: 24
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        color: "#007acc"
+
+        Label {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.leftMargin: 8
+            color: "#ffffff"
+            text: editor.filePath === ""
+                  ? qsTr("Файл не выбран")
+                  : editor.filePath
+        }
+        Label {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.right: parent.right
+            anchors.rightMargin: 8
+            color: "#ffffff"
+            text: "Стр " + (editor.cursorLine + 1) + ", Стлб "
+                  + (editor.cursorColumn + 1)
         }
     }
 }

@@ -29,6 +29,7 @@ qt_add_qml_module(appMyCodeApp
         Main.qml
         SOURCES textspikeiten.h textspikeiten.cpp
                textspikeqsgitem.h textspikeqsgitem.cpp
+               src/gui/editerview.h src/gui/editerview.cpp
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -42,7 +43,9 @@ set_target_properties(appMyCodeApp PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
-target_include_directories(appMyCodeApp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(appMyCodeApp PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
 
 target_link_libraries(appMyCodeApp
     PRIVATE Qt6::Quick
