@@ -12,6 +12,7 @@
 #include <qsgtextnode.h>
 #include <QTextLayout>
 #include <QtMath>
+#include <QUrl>
 #include "src/core/document.h"
 #include "src/core/textbuffer.h"
 #include "textspikeiten.h" // spikeLog()
@@ -56,6 +57,7 @@ void EditorView::setDocument(QObject *doc)
     m_document = qobject_cast<Document *>(doc);
     m_cursor = {};
     m_anchor = {};
+    m_goalColumn = 0;
     m_scrollY = 0;
     m_lastFirstLine = -1;
     lock.unlock();
@@ -68,8 +70,11 @@ void EditorView::setFilePath(const QString &path)
 {
     if (path.isEmpty())
         return;
+    // QML FileDialog отдаёт file:///-URL, Document::load ждёт локальный путь
+    const QUrl url(path);
+    const QString local = url.isLocalFile() ? url.toLocalFile() : path;
     auto *doc = new Document(this);
-    if (!doc->load(path)) {
+    if (!doc->load(local)) {
         delete doc;
         emit errorOccurred(QStringLiteral("не удалось открыть файл"));
         return;
@@ -151,6 +156,7 @@ void EditorView::selectAll()
     const int last = m_document->buffer().lineCount() - 1;
     m_anchor = {0, 0};
     m_cursor = {last, m_document->buffer().lineLength(last)};
+    m_goalColumn = m_cursor.column;
     lock.unlock();
     update();
     emit cursorChanged();
@@ -164,6 +170,7 @@ void EditorView::moveCursor(int dline, int dcol, bool extend)
     TextBuffer &buf = m_document->buffer();
     const int lineCount = buf.lineCount();
 
+    const Cursor from = m_cursor;
     int line = qBound(0, m_cursor.line + dline, lineCount - 1);
     int column = m_cursor.column + dcol;
     if (column < 0 && line > 0) { // конец предыдущей строки
@@ -174,8 +181,16 @@ void EditorView::moveCursor(int dline, int dcol, bool extend)
         ++line; // начало следующей строки
         column = 0;
     }
-    m_cursor = {line, qBound(0, column, buf.lineLength(line))};
+    column = qBound(0, column, buf.lineLength(line));
+    if (dcol == 0) // вниз/вверх — держим целевую колонку через пустые строки
+        column = qBound(0, m_goalColumn, buf.lineLength(line));
+    m_cursor = {line, column};
+    m_goalColumn = column;
     lock.unlock();
+    spikeLog((QStringLiteral("move: (%1,%2)->(%3,%4) d=(%5,%6) lines=%7")
+                  .arg(from.line).arg(from.column)
+                  .arg(line).arg(column).arg(dline).arg(dcol).arg(lineCount))
+                 .toStdString());
 
     if (!extend)
         m_anchor = m_cursor;
@@ -227,6 +242,7 @@ void EditorView::markEdited()
     m_cursor = TextBuffer::clampPosition({m_cursor.line, m_cursor.column},
                                          m_document->buffer());
     m_anchor = m_cursor;
+    m_goalColumn = m_cursor.column;
     ensureCursorVisible();
     emit cursorChanged();
     update();
@@ -284,6 +300,7 @@ void EditorView::keyPressEvent(QKeyEvent *event)
                 {m_cursor.line, m_cursor.column}, m_document->buffer());
             m_document->buffer().insertText(
                 {m_cursor.line, m_cursor.column}, QStringLiteral("\n"));
+            moveCursorAfterInsert(QStringLiteral("\n"));
             markEdited();
         }
         break;
@@ -369,6 +386,7 @@ void EditorView::mousePressEvent(QMouseEvent *event)
                                m_lineHeight, m_charWidth);
     m_cursor = c;
     m_anchor = c;
+    m_goalColumn = c.column;
     lock.unlock();
     update();
     emit cursorChanged();
@@ -382,6 +400,7 @@ void EditorView::mouseMoveEvent(QMouseEvent *event)
     QMutexLocker lock(&m_docMutex);
     m_cursor = fromMouse(event->position(), m_document->buffer(),
                          m_lineHeight, m_charWidth);
+    m_goalColumn = m_cursor.column;
     lock.unlock();
     update();
     emit cursorChanged();

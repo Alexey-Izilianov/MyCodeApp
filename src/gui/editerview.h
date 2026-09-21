@@ -77,6 +77,7 @@ private:
     qreal m_scrollY = 0.0;
     Cursor m_cursor;
     Cursor m_anchor; // второй конец выделения
+    int m_goalColumn = 0; // «липкая» колонка для движения вверх/вниз
 
     QFont m_font;
     qreal m_lineHeight = 0.0;
