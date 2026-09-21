@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <QFileInfo>
 #include <string>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -45,17 +46,15 @@ int main(int argc, char *argv[])
     spikeLog("main: QML загружен, корневых объектов: " + std::to_string(roots.size()));
 
     if (!startPath.isEmpty() && !roots.isEmpty()) {
-        // objectName: "editor" задан в Main.qml — ищем редактор среди детей окна
-        if (auto *editor = roots.first()->findChild<QObject *>(QStringLiteral("editor"))) {
-            editor->setProperty("filePath", startPath);
-            spikeLog("main: filePath установлен из аргумента");
-            // appMyCodeApp.exe <файл> -autoscroll: автоскролл сразу после загрузки
-            if (argc > 2 && std::string(argv[2]) == "-autoscroll") {
-                editor->setProperty("autoScroll", true);
-                spikeLog("main: автоскролл включён");
-            }
+        if (auto *manager = roots.first()->findChild<QObject *>(QStringLiteral("manager"))) {
+            const QUrl startUrl = QUrl::fromLocalFile(
+                QFileInfo(startPath).absoluteFilePath());
+            int tabIndex = -1;
+            QMetaObject::invokeMethod(manager, "open", Q_RETURN_ARG(int, tabIndex),
+                                      Q_ARG(QUrl, startUrl));
+            spikeLog("main: open() из аргумента, индекс таба: " + std::to_string(tabIndex));
         } else {
-            spikeLog("main: ОШИБКА — editor не найден в сцене");
+            spikeLog("main: ОШИБКА — manager не найден в сцене");
         }
     }
 
