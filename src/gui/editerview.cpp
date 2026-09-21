@@ -53,8 +53,14 @@ void EditorView::setDocument(QObject *doc)
 {
     if (doc == m_document)
         return;
+    if (m_document)
+        disconnect(m_document, &QObject::destroyed, this, nullptr);
     QMutexLocker lock(&m_docMutex);
     m_document = qobject_cast<Document *>(doc);
+    if (m_document)
+        connect(m_document, &QObject::destroyed, this, [this] {
+            m_document = nullptr;
+        });
     m_cursor = {};
     m_anchor = {};
     m_goalColumn = 0;
@@ -128,6 +134,8 @@ void EditorView::copy()
 
 void EditorView::cut()
 {
+    if (!m_document)
+        return;
     copy();
     QMutexLocker lock(&m_docMutex);
     deleteSelection();
@@ -136,6 +144,8 @@ void EditorView::cut()
 
 void EditorView::paste()
 {
+    if (!m_document)
+        return;
     const QString text = QGuiApplication::clipboard()->text();
     if (text.isEmpty())
         return;

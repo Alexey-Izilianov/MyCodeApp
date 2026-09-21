@@ -1,4 +1,5 @@
 #include "documentmanager.h"
+#include "textspikeiten.h" // временная диагностика
 
 using core::Document;
 
@@ -55,6 +56,7 @@ int DocumentManager::open(const QUrl &url)
     }
     connect(doc, &Document::dirtyChanged, this, &DocumentManager::tabsChanged);
 
+    spikeLog("dm: open OK " + path.toStdString());
     m_docs.append(doc);
     m_current = m_docs.size() - 1;
     emit tabsChanged();
@@ -66,15 +68,21 @@ void DocumentManager::close(int index)
 {
     if (index < 0 || index >= m_docs.size())
         return;
-    delete m_docs.takeAt(index);
+    spikeLog("dm: close " + std::to_string(index));
+    core::Document *doc = m_docs.takeAt(index);
     if (m_current >= m_docs.size())
         m_current = m_docs.size() - 1;
+    // Сначала уведомляем: редактор отцепит документ (у него свой мьютекс,
+    // защищающий буфер от рендер-потока), и только потом удаляем.
     emit tabsChanged();
     emit currentIndexChanged();
+    doc->deleteLater();
 }
 
 void DocumentManager::activate(int index)
 {
+    if (index != m_current)
+        spikeLog("dm: activate " + std::to_string(index));
     if (index == m_current || index < 0 || index >= m_docs.size())
         return;
     m_current = index;
