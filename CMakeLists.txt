@@ -22,6 +22,7 @@ qt_add_qml_module(appMyCodeApp
     QML_FILES
         Main.qml
         SOURCES textspikeiten.h textspikeiten.cpp
+               textspikeqsgitem.h textspikeqsgitem.cpp
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

@@ -1,4 +1,5 @@
 #include <QGuiApplication>
+#include <string>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include "textspikeiten.h" // spikeLog()
@@ -48,6 +49,11 @@ int main(int argc, char *argv[])
         if (auto *editor = roots.first()->findChild<QObject *>(QStringLiteral("editor"))) {
             editor->setProperty("filePath", startPath);
             spikeLog("main: filePath установлен из аргумента");
+            // appMyCodeApp.exe <файл> -autoscroll: автоскролл сразу после загрузки
+            if (argc > 2 && std::string(argv[2]) == "-autoscroll") {
+                editor->setProperty("autoScroll", true);
+                spikeLog("main: автоскролл включён");
+            }
         } else {
             spikeLog("main: ОШИБКА — editor не найден в сцене");
         }

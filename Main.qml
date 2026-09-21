@@ -8,9 +8,9 @@ ApplicationWindow {
     width: 1000
     height: 700
     visible: true
-    title: qsTr("Spike: рендер редактора(Этап 0)")
+    title: qsTr("Spike 2: рендер редактора на QSG (Этап 0)")
 
-    TextSpikeItem {
+    TextSpikeQsgItem {
         id: editor
         objectName: "editor" // C++ ищет редактор по этому имени (main.cpp)
         anchors.top: toolbar.bottom
@@ -26,12 +26,18 @@ ApplicationWindow {
                  }
     }
 
+    // Автоскролл: равномерное движение как при прокрутке, чтобы FPS
+    // замерялся одинаково без участия человека (кнопка или -autoscroll).
+    Timer {
+        interval: 16
+        running: editor.autoScroll
+        repeat: true
+        onTriggered: editor.scrollY += 3
+    }
+
     FileDialog {
         id: fileDialog
-        onAccepted: {
-            console.log("DIAG: файл выбран:", selectedFile)
-            editor.filePath = selectedFile
-        }
+        onAccepted: editor.filePath = selectedFile
     }
 
     Rectangle {
@@ -49,19 +55,20 @@ ApplicationWindow {
             spacing: 12
 
             Button {
-                text: qsTr("Открыть файл ... ")
-                onClicked: {
-                    console.log("DIAG: кнопка нажата, открываю диалог")
-                    fileDialog.open()
-                }
+                text: qsTr("Открыть файл ...")
+                onClicked: fileDialog.open()
+            }
+
+            Button {
+                text: editor.autoScroll ? qsTr("Стоп автоскролл") : qsTr("Автоскролл")
+                onClicked: editor.autoScroll = !editor.autoScroll
             }
 
             Label {
                 anchors.verticalCenter: parent.verticalCenter
                 color: "#aaaaaa"
                 text: editor.filePath === "" ? qsTr("Файл не выбран")
-                    : editor.filePath + "| scrollY "
-                    + editor.scrollY.toFixed(0)
+                    : editor.filePath + " | scrollY " + editor.scrollY.toFixed(0)
             }
         }
     }
