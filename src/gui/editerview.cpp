@@ -170,7 +170,6 @@ void EditorView::moveCursor(int dline, int dcol, bool extend)
     TextBuffer &buf = m_document->buffer();
     const int lineCount = buf.lineCount();
 
-    const Cursor from = m_cursor;
     int line = qBound(0, m_cursor.line + dline, lineCount - 1);
     int column = m_cursor.column + dcol;
     if (column < 0 && line > 0) { // конец предыдущей строки
@@ -187,10 +186,6 @@ void EditorView::moveCursor(int dline, int dcol, bool extend)
     m_cursor = {line, column};
     m_goalColumn = column;
     lock.unlock();
-    spikeLog((QStringLiteral("move: (%1,%2)->(%3,%4) d=(%5,%6) lines=%7")
-                  .arg(from.line).arg(from.column)
-                  .arg(line).arg(column).arg(dline).arg(dcol).arg(lineCount))
-                 .toStdString());
 
     if (!extend)
         m_anchor = m_cursor;
