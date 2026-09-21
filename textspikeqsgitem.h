@@ -4,6 +4,7 @@
 #include <QElapsedTimer>
 #include <QFont>
 #include <QMutex>
+#include <atomic>
 #include <QtQmlIntegration/qqmlintegration.h>
 #include <QStringList>
 

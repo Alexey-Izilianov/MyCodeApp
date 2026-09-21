@@ -29,6 +29,7 @@ ApplicationWindow {
     // Автоскролл: равномерное движение как при прокрутке, чтобы FPS
     // замерялся одинаково без участия человека (кнопка или -autoscroll).
     Timer {
+        id: autoScrollTimer
         interval: 16
         running: editor.autoScroll
         repeat: true

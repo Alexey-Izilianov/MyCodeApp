@@ -1,8 +1,6 @@
 #include "textspikeqsgitem.h"
 
 #include <QFontMetricsF>
-#include <atomic>
-#include <QSGRendererInterface>
 #include <QFile>
 #include <QTextStream>
 #include <QTextLayout>
@@ -83,15 +81,6 @@ void TextSpikeQsgItem::setAutoScroll(bool on)
 QSGNode *TextSpikeQsgItem::updatePaintNode(QSGNode *oldNode,
                                            UpdatePaintNodeData *)
 {
-    static bool firstCall = true;
-    if (firstCall) {
-        firstCall = false;
-        spikeLog("QSG updatePaintNode: первый вызов, window=" +
-                 std::string(window() ? "ok" : "NULL")
-                 + ", graphicsApi=" + std::to_string(
-                     int(window()->rendererInterface()->graphicsApi())));
-    }
-
     QSGNode *root = oldNode;
     if (!root) {
         root = new QSGNode;
@@ -131,6 +120,7 @@ QSGNode *TextSpikeQsgItem::updatePaintNode(QSGNode *oldNode,
         m_transformFrames = 0;
         m_rebuildFrames = 0;
         m_layoutUs = 0;
+        m_fpsTimer.restart();
     }
 
     m_linesMutex.lock();
@@ -174,7 +164,6 @@ QSGNode *TextSpikeQsgItem::updatePaintNode(QSGNode *oldNode,
         m_scrollTransform->appendChildNode(node);
         m_pool.append(node);
     }
-    spikeLog("QSG: пул создан, нод: " + std::to_string(m_pool.size()));
     while (m_pool.size() > take) {
         QSGTextNode *node = m_pool.takeLast();
         m_scrollTransform->removeChildNode(node);
@@ -201,7 +190,5 @@ QSGNode *TextSpikeQsgItem::updatePaintNode(QSGNode *oldNode,
 
     m_lastFirstLine = firstLine;
     m_layoutUs += m_layoutTimer.nsecsElapsed() / 1000;
-    if (m_rebuildFrames == 1) // первый rebuild — контрольный лог
-        spikeLog("QSG: rebuild завершён, строк залейауто: " + std::to_string(take));
     return root;
 }
