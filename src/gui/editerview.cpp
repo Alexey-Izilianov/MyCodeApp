@@ -21,8 +21,8 @@ using core::Document;
 using core::TextBuffer;
 
 namespace {
-const QColor kBackgroundColor(0x1e, 0x1e, 0x1e);
-const QColor kTextColor(0xd4, 0xd4, 0xd4);
+const QColor kBackgroundColor(0x15, 0x18, 0x23);
+const QColor kTextColor(0xd9, 0xde, 0xe9);
 const QColor kSelectionColor(0x26, 0x4f, 0x78);
 const QColor kCaretColor(0xae, 0xaf, 0xad);
 const QColor kMatchColor(0x61, 0x32, 0x14);       // все совпадения поиска
