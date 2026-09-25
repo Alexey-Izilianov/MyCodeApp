@@ -27,6 +27,8 @@ public:
     };
 
     bool load(const QString &path, QString *error = nullptr);
+    // Декодирование готовых байтов (используется асинхронной загрузкой Document)
+    bool loadFromData(const QByteArray &data, QString *error = nullptr);
     bool save(const QString &path, QString *error = nullptr); // temp + rename
 
     int lineCount() const { return m_lines.size(); }

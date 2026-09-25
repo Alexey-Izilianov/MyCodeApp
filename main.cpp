@@ -1,34 +1,38 @@
 #include <QGuiApplication>
 #include <QFileInfo>
+#include <QQuickWindow>
+#include <QTimer>
 #include <string>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include "textspikeiten.h" // spikeLog()
+#include "src/services/logger.h"
 
 // Свой обработчик сообщений Qt: дефолтный на Windows для GUI-приложения
 // (WIN32_EXECUTABLE, нет консоли) шлёт qDebug/qWarning в OutputDebugString —
-// их видно только из отладчика. Дублируем в stderr на всякий случай.
-static void spikeMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg)
+// их видно только из отладчика. Дублируем в spdlog.
+static void qtMessageHandler(QtMsgType type, const QMessageLogContext &,
+                             const QString &msg)
 {
-    const char *tag = type == QtWarningMsg ? "WARN"
-                    : type == QtCriticalMsg ? "CRIT"
-                    : type == QtFatalMsg    ? "FATAL" : "LOG";
-    spikeLog(std::string("[") + tag + "] " + msg.toStdString());
+    switch (type) {
+    case QtWarningMsg:  spdlog::warn("qt: {}", msg.toStdString()); break;
+    case QtCriticalMsg: spdlog::error("qt: {}", msg.toStdString()); break;
+    case QtFatalMsg:    spdlog::critical("qt: {}", msg.toStdString()); break;
+    default:            spdlog::info("qt: {}", msg.toStdString()); break;
+    }
 }
 
 int main(int argc, char *argv[])
 {
-    spikeLog("main: старт");
-
     QGuiApplication app(argc, argv);
-    spikeLog("main: QGuiApplication создан");
-    qInstallMessageHandler(spikeMessageHandler);
+    initLogging();
+    qInstallMessageHandler(qtMessageHandler);
+    spdlog::info("main: старт");
 
     QQmlApplicationEngine engine;
-    spikeLog("main: engine создан");
+    spdlog::info("main: engine создан");
 
-    // Спайк: путь к файлу можно передать аргументом командной строки
-    // (appMyCodeApp.exe C:/path/to/file) — тогда файл грузится при старте.
+    // Путь к файлу можно передать аргументом командной строки
+    // (appMyCodeApp.exe C:/path/to/file) — файл грузится при старте.
     // В QML-цепочку (context property + onCompleted) не верим: после загрузки
     // сцены выставляем свойство filePath прямо в C++-объект редактора.
     const QString startPath = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
@@ -43,7 +47,8 @@ int main(int argc, char *argv[])
     engine.loadFromModule("MyCodeApp", "Main");
 
     const auto roots = engine.rootObjects();
-    spikeLog("main: QML загружен, корневых объектов: " + std::to_string(roots.size()));
+    spdlog::info("main: QML загружен, корневых объектов: {}",
+                 std::to_string(roots.size()));
 
     if (!startPath.isEmpty() && !roots.isEmpty()) {
         if (auto *manager = roots.first()->findChild<QObject *>(QStringLiteral("manager"))) {
@@ -52,9 +57,27 @@ int main(int argc, char *argv[])
             int tabIndex = -1;
             QMetaObject::invokeMethod(manager, "open", Q_RETURN_ARG(int, tabIndex),
                                       Q_ARG(QUrl, startUrl));
-            spikeLog("main: open() из аргумента, индекс таба: " + std::to_string(tabIndex));
+            spdlog::info("main: open() из аргумента, индекс таба: {}",
+                         std::to_string(tabIndex));
         } else {
-            spikeLog("main: ОШИБКА — manager не найден в сцене");
+            spdlog::error("main: manager не найден в сцене");
+        }
+    }
+
+    // Смоук-режим самотеста: MYCODEAPP_SHOT=<путь.png> — открыть окно,
+    // снять скриншот и выйти. Используется для автоматической проверки.
+    const QByteArray shotPath = qgetenv("MYCODEAPP_SHOT");
+    if (!shotPath.isEmpty() && !roots.isEmpty()) {
+        if (auto *win = qobject_cast<QQuickWindow *>(roots.first())) {
+            QTimer::singleShot(2000, win, [win, shotPath]() {
+                const QImage image = win->grabWindow();
+                if (image.save(QString::fromLocal8Bit(shotPath)))
+                    spdlog::info("main: скриншот сохранён: {}",
+                                 QString::fromLocal8Bit(shotPath).toStdString());
+                else
+                    spdlog::error("main: скриншот не сохранился");
+                QCoreApplication::exit(0);
+            });
         }
     }
 

@@ -1,0 +1,42 @@
+{
+    "languages": {
+        "cpp": {
+            "extensions": ["c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx", "inl"],
+            "rules": [
+                { "type": "preprocessor", "re": "^\\s*#\\s*\\w+", "color": "#c586c0" },
+                { "type": "comment", "re": "//.*$|/\\*.*?(\\*/|$)", "color": "#6a9955" },
+                { "type": "string", "re": "\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*'", "color": "#ce9178" },
+                { "type": "number", "re": "\\b(?:0[xX][0-9a-fA-F]+|\\d+\\.?\\d*(?:[eE][+-]?\\d+)?[uUlLfF]*)\\b", "color": "#b5cea8" },
+                { "type": "keyword", "re": "\\b(?:alignas|alignof|and|and_eq|asm|auto|bitand|bitor|bool|break|case|catch|char|char8_t|char16_t|char32_t|class|compl|concept|const|consteval|constexpr|constinit|const_cast|continue|co_await|co_return|co_yield|decltype|default|delete|do|double|dynamic_cast|else|enum|explicit|export|extern|false|final|float|for|friend|goto|if|inline|int|long|mutable|namespace|new|noexcept|not|not_eq|nullptr|operator|or|or_eq|override|private|protected|public|register|reinterpret_cast|requires|return|short|signed|sizeof|static|static_assert|static_cast|struct|switch|template|this|thread_local|throw|true|try|typedef|typeid|typename|union|unsigned|using|virtual|void|volatile|wchar_t|while|xor|xor_eq)\\b", "color": "#569cd6" }
+            ]
+        },
+        "python": {
+            "extensions": ["py", "pyw", "pyi"],
+            "rules": [
+                { "type": "comment", "re": "#.*$", "color": "#6a9955" },
+                { "type": "decorator", "re": "^\\s*@[\\w.]+", "color": "#dcdcaa" },
+                { "type": "string", "re": "(?i)\\b(?:[rbuf]{0,2})('''(?:[^']|'{1,2}(?!'))'''|\"\"\"(?:[^\"]|\"{1,2}(?!\"))\"\"\")", "color": "#ce9178" },
+                { "type": "string", "re": "(?i)\\b[rbuf]{0,2}\"(?:[^\"\\\\]|\\\\.)*\"|\\b[rbuf]{0,2}'(?:[^'\\\\]|\\\\.)*'", "color": "#ce9178" },
+                { "type": "number", "re": "\\b(?:0[xX][0-9a-fA-F]+|\\d+\\.?\\d*(?:[eE][+-]?\\d+)?)\\b", "color": "#b5cea8" },
+                { "type": "keyword", "re": "\\b(?:False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|match|case|nonlocal|not|or|pass|raise|return|try|while|with|yield)\\b", "color": "#569cd6" }
+            ]
+        },
+        "json": {
+            "extensions": ["json", "jsonc"],
+            "rules": [
+                { "type": "key", "re": "\"(?:[^\"\\\\]|\\\\.)*\"(?=\\s*:)", "color": "#9cdcfe" },
+                { "type": "string", "re": "\"(?:[^\"\\\\]|\\\\.)*\"", "color": "#ce9178" },
+                { "type": "number", "re": "-?\\d+\\.?\\d*(?:[eE][+-]?\\d+)?", "color": "#b5cea8" },
+                { "type": "keyword", "re": "\\b(?:true|false|null)\\b", "color": "#569cd6" }
+            ]
+        },
+        "markdown": {
+            "extensions": ["md", "markdown"],
+            "rules": [
+                { "type": "heading", "re": "^#{1,6}\\s.*$", "color": "#569cd6" },
+                { "type": "bold", "re": "\\*\\*[^*]+\\*\\*|__[^_]+__", "color": "#9cdcfe" },
+                { "type": "code", "re": "`[^`]+`", "color": "#ce9178" }
+            ]
+        }
+    }
+}

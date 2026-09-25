@@ -109,8 +109,11 @@ bool TextBuffer::load(const QString &path, QString *error)
             *error = file.errorString();
         return false;
     }
+    return loadFromData(file.readAll(), error);
+}
 
-    const QByteArray raw = file.readAll();
+bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
+{
     if (raw.size() >= 8192 * 1024 * 1024LL) { // предел ТЗ — 1 ГБ
         if (error)
             *error = QStringLiteral("файл больше 1 ГБ");

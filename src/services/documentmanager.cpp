@@ -1,5 +1,6 @@
 #include "documentmanager.h"
-#include "textspikeiten.h" // временная диагностика
+
+#include <QFileInfo>
 
 using core::Document;
 
@@ -49,14 +50,32 @@ int DocumentManager::open(const QUrl &url)
     }
 
     auto *doc = new Document(this);
+    if (QFileInfo(path).size() > kAsyncLoadThreshold) {
+        // Большой файл: грузим в фоне, в табы опубликуем по loadFinished.
+        m_loadingDocs.append(doc);
+        connect(doc, &Document::loadProgress, this, [this](int percent) {
+            m_loadPercent = percent;
+            emit loadPercentChanged();
+        });
+        connect(doc, &Document::loadFinished, this,
+                [this, doc](bool ok) { finishAsyncLoad(doc, ok); });
+        emit loadingChanged();
+        if (!doc->loadAsync(path)) {
+            m_loadingDocs.removeOne(doc);
+            emit loadingChanged();
+            delete doc;
+            emit errorOccurred(QStringLiteral("не удалось открыть файл"));
+            return -1;
+        }
+        return -1; // таб появится по окончании загрузки
+    }
+
     if (!doc->load(path)) {
         delete doc;
         emit errorOccurred(QStringLiteral("не удалось открыть файл"));
         return -1;
     }
     connect(doc, &Document::dirtyChanged, this, &DocumentManager::tabsChanged);
-
-    spikeLog("dm: open OK " + path.toStdString());
     m_docs.append(doc);
     m_current = m_docs.size() - 1;
     emit tabsChanged();
@@ -64,11 +83,28 @@ int DocumentManager::open(const QUrl &url)
     return m_current;
 }
 
+void DocumentManager::finishAsyncLoad(core::Document *doc, bool ok)
+{
+    m_loadingDocs.removeOne(doc);
+    if (ok) {
+        connect(doc, &Document::dirtyChanged, this,
+                &DocumentManager::tabsChanged);
+        m_docs.append(doc);
+        m_current = m_docs.size() - 1;
+        emit tabsChanged();
+        emit currentIndexChanged();
+    } else {
+        doc->deleteLater();
+        emit errorOccurred(QStringLiteral("не удалось открыть файл"));
+    }
+    if (!isLoading())
+        emit loadingChanged();
+}
+
 void DocumentManager::close(int index)
 {
     if (index < 0 || index >= m_docs.size())
         return;
-    spikeLog("dm: close " + std::to_string(index));
     core::Document *doc = m_docs.takeAt(index);
     if (m_current >= m_docs.size())
         m_current = m_docs.size() - 1;
@@ -81,8 +117,6 @@ void DocumentManager::close(int index)
 
 void DocumentManager::activate(int index)
 {
-    if (index != m_current)
-        spikeLog("dm: activate " + std::to_string(index));
     if (index == m_current || index < 0 || index >= m_docs.size())
         return;
     m_current = index;

@@ -38,6 +38,11 @@ ApplicationWindow {
         anchors.bottom: statusbar.top
 
         onErrorOccurred: (message) => console.log("ERROR:", message)
+        onFindRequested: {
+            searchbar.visible = true
+            searchInput.focus = true
+            searchInput.selectAll()
+        }
     }
 
     WheelHandler {
@@ -45,6 +50,15 @@ ApplicationWindow {
                      editor.scrollY = Math.max(0, editor.scrollY -
                      event.angleDelta.y * 0.5)
                  }
+    }
+
+    DropArea {
+        anchors.fill: parent
+        onEntered: (drag) => drag.accept(drag.hasUrls)
+        onDropped: (drop) => {
+            for (const url of drop.urls)
+                manager.open(url)
+        }
     }
 
     FileDialog {
@@ -93,6 +107,100 @@ ApplicationWindow {
                 enabled: manager.currentIndex >= 0
                 onClicked: window.requestClose(manager.currentIndex)
             }
+            Button {
+                text: qsTr("Найти")
+                enabled: manager.currentIndex >= 0
+                onClicked: editor.findRequested()
+            }
+        }
+    }
+
+    Rectangle {
+        id: searchbar
+        visible: false
+        height: 34
+        anchors.top: toolbar.bottom
+        anchors.right: parent.right
+        anchors.rightMargin: 8
+        width: searchRow.implicitWidth + 16
+        color: "#2d2d2d"
+        border.color: "#555555"
+
+        function close() {
+            visible = false
+            editor.clearSearch()
+            editor.focus = true
+        }
+
+        Row {
+            id: searchRow
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.leftMargin: 8
+            spacing: 6
+
+            TextField {
+                id: searchInput
+                width: 180
+                placeholderText: qsTr("Поиск")
+                selectByMouse: true
+
+                Timer {
+                    id: searchDebounce
+                    interval: 250
+                    onTriggered: editor.find(searchInput.text,
+                                             caseToggle.checked)
+                }
+                onTextChanged: searchDebounce.restart()
+                onAccepted: editor.findNext()
+
+                Keys.onEscapePressed: searchbar.close()
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_F3) {
+                        if (event.modifiers & Qt.ShiftModifier)
+                            editor.findPrev()
+                        else
+                            editor.findNext()
+                        event.accepted = true
+                    }
+                }
+            }
+            ToolButton {
+                id: caseToggle
+                text: "Aa"
+                checkable: true
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Учитывать регистр")
+                onToggled: searchDebounce.restart()
+            }
+            Label {
+                id: searchCount
+                anchors.verticalCenter: parent.verticalCenter
+                color: "#bbbbbb"
+                text: qsTr("-/-")
+            }
+            ToolButton {
+                text: "↑"
+                onClicked: editor.findPrev()
+            }
+            ToolButton {
+                text: "↓"
+                onClicked: editor.findNext()
+            }
+            ToolButton {
+                text: "✕"
+                onClicked: searchbar.close()
+            }
+        }
+
+        Connections {
+            target: editor
+            function onSearchUpdated(current, total) {
+                searchCount.text = total === 0 ? qsTr("нет")
+                                               : (current === 0
+                                                  ? "?/" + total
+                                                  : current + "/" + total)
+            }
         }
     }
 
@@ -136,6 +244,40 @@ ApplicationWindow {
         }
     }
 
+    // Оверлей прогресса загрузки больших файлов (порог — 20 МБ)
+    Rectangle {
+        id: loadOverlay
+        visible: manager.loading
+        anchors.fill: parent
+        color: "#a8000000"
+        z: 10
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 12
+
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: "#ffffff"
+                text: manager.loading
+                      ? qsTr("Загрузка: %1").arg(manager.loadingName)
+                      : ""
+            }
+            ProgressBar {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 320
+                from: 0
+                to: 100
+                value: manager.loadPercent
+            }
+            Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: "#dddddd"
+                text: manager.loadPercent + "%"
+            }
+        }
+    }
+
     Rectangle {
         id: statusbar
         height: 24
@@ -153,13 +295,23 @@ ApplicationWindow {
                   ? qsTr("Файл не выбран")
                   : editor.filePath
         }
-        Label {
+        Row {
             anchors.verticalCenter: parent.verticalCenter
             anchors.right: parent.right
             anchors.rightMargin: 8
-            color: "#ffffff"
-            text: "Стр " + (editor.cursorLine + 1) + ", Стлб "
-                  + (editor.cursorColumn + 1)
+            spacing: 16
+
+            Label {
+                anchors.verticalCenter: parent.verticalCenter
+                color: "#ffffff"
+                text: editor.encoding + " · " + editor.lineEnding
+            }
+            Label {
+                anchors.verticalCenter: parent.verticalCenter
+                color: "#ffffff"
+                text: "Стр " + (editor.cursorLine + 1) + ", Стлб "
+                      + (editor.cursorColumn + 1)
+            }
         }
     }
 }

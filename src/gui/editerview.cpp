@@ -15,7 +15,7 @@
 #include <QUrl>
 #include "src/core/document.h"
 #include "src/core/textbuffer.h"
-#include "textspikeiten.h" // spikeLog()
+#include "src/services/searchengine.h"
 
 using core::Document;
 using core::TextBuffer;
@@ -25,6 +25,9 @@ const QColor kBackgroundColor(0x1e, 0x1e, 0x1e);
 const QColor kTextColor(0xd4, 0xd4, 0xd4);
 const QColor kSelectionColor(0x26, 0x4f, 0x78);
 const QColor kCaretColor(0xae, 0xaf, 0xad);
+const QColor kMatchColor(0x61, 0x32, 0x14);       // все совпадения поиска
+const QColor kCurrentMatchColor(0x8a, 0x5a, 0x1e); // текущее совпадение
+constexpr int kMaxTextNodes = 1024;                // предел пула текстовых нод
 } // namespace
 
 EditorView::EditorView(QQuickItem *parent)
@@ -37,6 +40,20 @@ EditorView::EditorView(QQuickItem *parent)
     const QFontMetricsF fm(m_font);
     m_lineHeight = fm.lineSpacing();
     m_charWidth = fm.horizontalAdvance(QChar('M'));
+
+    // Правила подсветки зашиты в ресурсы приложения.
+    m_highlighter.loadRules(QStringLiteral(":/assets/highlight.json"));
+
+    m_searchEngine = new SearchEngine(this);
+    connect(m_searchEngine, &SearchEngine::resultsReady, this,
+            [this](const QVector<SearchEngine::Match> &matches) {
+                m_matches.reserve(matches.size());
+                for (const auto &m : matches)
+                    m_matches.append({m.line, m.column, m.length});
+                m_currentMatch = nearestMatchFromCursor();
+                emit searchUpdated(m_currentMatch + 1, m_matches.size());
+                update();
+            });
 }
 
 QObject *EditorView::document() const
@@ -66,10 +83,27 @@ void EditorView::setDocument(QObject *doc)
     m_goalColumn = 0;
     m_scrollY = 0;
     m_lastFirstLine = -1;
+    m_highlighter.setLanguageForFile(
+        m_document ? m_document->filePath() : QString());
     lock.unlock();
+    clearSearch();
     emit documentChanged();
     emit cursorChanged();
     update();
+}
+
+QString EditorView::encoding() const
+{
+    return m_document
+               ? core::encodingName(m_document->buffer().encoding())
+               : QString();
+}
+
+QString EditorView::lineEnding() const
+{
+    return m_document
+               ? core::lineEndingName(m_document->buffer().lineEnding())
+               : QString();
 }
 
 void EditorView::setFilePath(const QString &path)
@@ -172,6 +206,105 @@ void EditorView::selectAll()
     emit cursorChanged();
 }
 
+void EditorView::find(const QString &needle, bool caseSensitive)
+{
+    if (!m_document || needle.isEmpty()) {
+        clearSearch();
+        return;
+    }
+    m_searchNeedle = needle;
+    m_searchCase = caseSensitive;
+    // Снимок строк под мьютексом: воркер SearchEngine живёт в другом потоке,
+    // читать буфер на месте он не может (пользователь правит текст).
+    QStringList lines;
+    {
+        QMutexLocker lock(&m_docMutex);
+        const TextBuffer &buf = m_document->buffer();
+        lines.reserve(buf.lineCount());
+        for (int i = 0; i < buf.lineCount(); ++i)
+            lines.append(buf.lineAt(i));
+    }
+    m_searchEngine->start(lines, needle, caseSensitive);
+}
+
+void EditorView::findNext()
+{
+    if (m_matches.isEmpty()) {
+        if (!m_searchNeedle.isEmpty())
+            find(m_searchNeedle, m_searchCase);
+        return;
+    }
+    if (m_currentMatch < 0)
+        m_currentMatch = nearestMatchFromCursor();
+    else
+        m_currentMatch = (m_currentMatch + 1) % m_matches.size();
+    jumpToMatch(m_currentMatch);
+}
+
+void EditorView::findPrev()
+{
+    if (m_matches.isEmpty()) {
+        if (!m_searchNeedle.isEmpty())
+            find(m_searchNeedle, m_searchCase);
+        return;
+    }
+    if (m_currentMatch < 0)
+        m_currentMatch = nearestMatchFromCursor();
+    else
+        m_currentMatch = (m_currentMatch - 1 + m_matches.size())
+                             % m_matches.size();
+    jumpToMatch(m_currentMatch);
+}
+
+void EditorView::clearSearch()
+{
+    m_matches.clear();
+    m_currentMatch = -1;
+    m_searchNeedle.clear();
+    clearMatchRects();
+    emit searchUpdated(0, 0);
+    update();
+}
+
+int EditorView::nearestMatchFromCursor() const
+{
+    // первое совпадение на позиции >= курсора; иначе — последнее
+    for (int i = 0; i < m_matches.size(); ++i) {
+        const Match &m = m_matches.at(i);
+        if (m.line > m_cursor.line
+            || (m.line == m_cursor.line && m.column >= m_cursor.column))
+            return i;
+    }
+    return m_matches.isEmpty() ? -1 : m_matches.size() - 1;
+}
+
+void EditorView::jumpToMatch(int index)
+{
+    if (!m_document || index < 0 || index >= m_matches.size())
+        return;
+    const Match &m = m_matches.at(index);
+    QMutexLocker lock(&m_docMutex);
+    m_anchor = {m.line, m.column};
+    m_cursor = {m.line, m.column + m.length};
+    m_goalColumn = m_cursor.column;
+    lock.unlock();
+    ensureCursorVisible();
+    update();
+    emit cursorChanged();
+    emit searchUpdated(index + 1, m_matches.size());
+}
+
+void EditorView::clearMatchRects()
+{
+    if (!m_matchLayer) // до первого updatePaintNode слоя ещё нет
+        return;
+    for (QSGSimpleRectNode *n : m_matchPool) {
+        m_matchLayer->removeChildNode(n);
+        delete n;
+    }
+    m_matchPool.clear();
+}
+
 void EditorView::moveCursor(int dline, int dcol, bool extend)
 {
     if (!m_document)
@@ -244,6 +377,11 @@ void EditorView::markEdited()
         return;
     m_document->setDirty(true);
     m_lastFirstLine = -1; // перерисовать видимые строки
+    if (!m_matches.isEmpty()) { // позиции совпадений после правки неверны
+        m_matches.clear();
+        m_currentMatch = -1;
+        emit searchUpdated(0, 0);
+    }
     m_cursor = TextBuffer::clampPosition({m_cursor.line, m_cursor.column},
                                          m_document->buffer());
     m_anchor = m_cursor;
@@ -266,8 +404,17 @@ void EditorView::keyPressEvent(QKeyEvent *event)
         case Qt::Key_X: cut(); return event->accept();
         case Qt::Key_V: paste(); return event->accept();
         case Qt::Key_S: save(); return event->accept();
+        case Qt::Key_F: emit findRequested(); return event->accept();
         default: return QQuickItem::keyPressEvent(event);
         }
+    }
+
+    if (key == Qt::Key_F3 && !m_searchNeedle.isEmpty()) {
+        if (shift)
+            findPrev();
+        else
+            findNext();
+        return event->accept();
     }
 
     switch (key) {
@@ -434,6 +581,8 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_clip->appendChildNode(m_scrollTransform);
         m_selLayer = new QSGNode; // первый ребёнок — ниже текстовых нод
         m_scrollTransform->appendChildNode(m_selLayer);
+        m_matchLayer = new QSGNode; // совпадения поиска — тоже под текстом
+        m_scrollTransform->appendChildNode(m_matchLayer);
         m_caret = new QSGSimpleRectNode(QRectF(), kCaretColor);
         root->appendChildNode(m_caret); // каретка вне клипа — всегда видна
     }
@@ -494,36 +643,104 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
 
     // Текстовые ноды: пересобираем при смене первой видимой строки или правке.
+    // Цветная строка = по одной ноде на цветной прогон + прогоны-зазоры.
     if (firstLine != m_lastFirstLine) {
         const int take = visibleLines.size();
-        while (m_textPool.size() < take) {
+        QVector<QVector<Highlighter::Span>> lineSpans(take);
+        int totalRuns = 0;
+        if (m_highlighter.hasLanguage()) {
+            for (int i = 0; i < take; ++i) {
+                m_highlighter.highlightLine(visibleLines.at(i),
+                                            lineSpans[i]);
+                totalRuns += lineSpans.at(i).size() * 2 + 1;
+            }
+        }
+        // Пул нод ограничен: при переполнении строки рисуются одним цветом.
+        const bool plain = totalRuns > kMaxTextNodes;
+
+        auto nextNode = [this]() -> QSGTextNode * {
+            if (m_textPool.size() >= kMaxTextNodes)
+                return nullptr;
             QSGTextNode *node = window()->createTextNode();
-            node->setColor(kTextColor);
             node->setRenderType(QSGTextNode::RenderType::QtRendering);
             m_scrollTransform->appendChildNode(node);
             m_textPool.append(node);
-        }
-        while (m_textPool.size() > take) {
-            QSGTextNode *node = m_textPool.takeLast();
-            m_scrollTransform->removeChildNode(node);
-            delete node;
-        }
-        for (int i = 0; i < take; ++i) {
-            QSGTextNode *node = m_textPool.at(i);
-            QMatrix4x4 nm;
-            nm.translate(0.0, float((firstLine + i) * m_lineHeight));
-            node->setMatrix(nm);
+            return node;
+        };
 
-            QTextLayout layout(visibleLines.at(i), m_font);
-            layout.beginLayout();
-            QTextLine line = layout.createLine();
-            if (line.isValid())
-                line.setLineWidth(100000);
-            layout.endLayout();
-            node->clear();
-            node->addTextLayout(QPointF(0.0, 0.0), &layout);
+        int used = 0;
+        for (int i = 0; i < take; ++i) {
+            const QString &text = visibleLines.at(i);
+            struct Run {
+                int start;
+                int end;
+                QColor color;
+            };
+            QVector<Run> runs;
+            const QVector<Highlighter::Span> &spans = lineSpans.at(i);
+            if (plain || spans.isEmpty()) {
+                runs.append({0, text.size(), kTextColor});
+            } else {
+                int pos = 0;
+                for (const Highlighter::Span &s : spans) {
+                    if (s.start > pos)
+                        runs.append({pos, s.start, kTextColor});
+                    runs.append({s.start, s.start + s.length,
+                                 m_highlighter.ruleColor(s.rule)});
+                    pos = s.start + s.length;
+                }
+                if (pos < text.size())
+                    runs.append({pos, text.size(), kTextColor});
+            }
+
+            for (const Run &run : runs) {
+                QSGTextNode *node = used < m_textPool.size()
+                                        ? m_textPool.at(used)
+                                        : nextNode();
+                ++used;
+                if (!node)
+                    break;
+                node->setColor(run.color);
+                QMatrix4x4 nm;
+                nm.translate(0.0, float((firstLine + i) * m_lineHeight));
+                node->setMatrix(nm);
+                node->clear();
+                if (run.end > run.start) {
+                    QTextLayout layout(text.mid(run.start, run.end - run.start),
+                                       m_font);
+                    layout.beginLayout();
+                    QTextLine line = layout.createLine();
+                    if (line.isValid())
+                        line.setLineWidth(100000);
+                    layout.endLayout();
+                    node->addTextLayout(QPointF(run.start * m_charWidth, 0.0),
+                                        &layout);
+                }
+            }
         }
+        for (int k = used; k < m_textPool.size(); ++k)
+            m_textPool.at(k)->clear(); // неиспользуемые ноды прячем
         m_lastFirstLine = firstLine;
+    }
+
+    // Прямоугольники совпадений поиска на видимых строках.
+    clearMatchRects();
+    if (!m_matches.isEmpty()) {
+        const int last = firstLine + visibleCount - 1;
+        for (int idx = 0; idx < m_matches.size(); ++idx) {
+            const Match &m = m_matches.at(idx);
+            if (m.line < firstLine || m.line > last)
+                continue;
+            QSGSimpleRectNode *rect = new QSGSimpleRectNode(
+                QRectF(m.column * m_charWidth,
+                       m.line * m_lineHeight - m_scrollY,
+                       qMax(qreal(m.length) * m_charWidth,
+                            m_charWidth * 0.5),
+                       m_lineHeight),
+                idx == m_currentMatch ? kCurrentMatchColor : kMatchColor);
+            m_matchLayer->appendChildNode(rect);
+            m_matchPool.append(rect);
+        }
     }
 
     // Выделение: прямоугольник на каждую видимую выбранную строку.
