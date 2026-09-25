@@ -17,9 +17,11 @@ void DocumentTest::syncLoadSmallFile()
 {
     QTemporaryDir dir;
     const QString path = dir.path() + "/small.txt";
-    QFile f(path);
-    QVERIFY(f.open(QIODevice::WriteOnly));
-    f.write("line1\nline2\n");
+    {
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        QCOMPARE(f.write("line1\nline2\n"), qint64(12));
+    } // файл закрыт до чтения — иначе читаем пустой файл
 
     Document doc;
     QVERIFY(doc.load(path));

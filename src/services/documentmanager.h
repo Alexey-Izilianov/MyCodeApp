@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QUrl>
@@ -56,6 +57,7 @@ private:
     QVector<core::Document *> m_loadingDocs; // ещё не опубликованные
     int m_current = -1;
     int m_loadPercent = 0;
+    QElapsedTimer m_loadTimer; // длительность последней фоновой загрузки
 
     static constexpr qint64 kAsyncLoadThreshold = 20 * 1024 * 1024; // 20 МБ
 };

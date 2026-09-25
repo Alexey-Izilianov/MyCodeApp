@@ -1,6 +1,7 @@
 #include "documentmanager.h"
 
 #include <QFileInfo>
+#include <spdlog/spdlog.h>
 
 using core::Document;
 
@@ -60,6 +61,7 @@ int DocumentManager::open(const QUrl &url)
         connect(doc, &Document::loadFinished, this,
                 [this, doc](bool ok) { finishAsyncLoad(doc, ok); });
         emit loadingChanged();
+        m_loadTimer.start();
         if (!doc->loadAsync(path)) {
             m_loadingDocs.removeOne(doc);
             emit loadingChanged();
@@ -87,6 +89,8 @@ void DocumentManager::finishAsyncLoad(core::Document *doc, bool ok)
 {
     m_loadingDocs.removeOne(doc);
     if (ok) {
+        spdlog::info("dm: async load {} мс, {} байт",
+                     m_loadTimer.elapsed(), doc->filePath().toStdString());
         connect(doc, &Document::dirtyChanged, this,
                 &DocumentManager::tabsChanged);
         m_docs.append(doc);

@@ -109,7 +109,7 @@ void HighlighterTest::cppLine()
     hl.highlightLine(QStringLiteral("int x = 42; // init"), spans);
     QVERIFY(hasSpan(spans, 0, 3, 3));            // int — keyword
     QVERIFY(hasSpan(spans, 8, 2, 2));            // 42 — number
-    QVERIFY(hasSpan(spans, 11, 7, 0));           // // init — comment
+    QVERIFY(hasSpan(spans, 12, 7, 0));           // // init — comment
     // фрагменты не перекрываются и отсортированы
     for (int i = 1; i < spans.size(); ++i)
         QVERIFY(spans.at(i - 1).start + spans.at(i - 1).length
@@ -141,7 +141,7 @@ void HighlighterTest::jsonKeyBeatsString()
     hl.highlightLine(QStringLiteral("{\"name\": \"val\", \"n\": 1}"), spans);
     // ключ "name" — правило key (с lookahead ':'), значение — string
     QVERIFY(hasSpan(spans, 1, 6, 0));
-    QVERIFY(hasSpan(spans, 10, 5, 1));
+    QVERIFY(hasSpan(spans, 9, 5, 1));
 }
 
 void HighlighterTest::plainLanguageGivesNoSpans()
