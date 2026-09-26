@@ -53,6 +53,7 @@ ApplicationWindow {
     // Круглая иконочная кнопка навигации в поисковой панели
     component SearchNavButton: Rectangle {
         property string glyph: ""
+        property string tip: ""
         signal activated()
         width: 24
         height: 24
@@ -72,6 +73,9 @@ ApplicationWindow {
             cursorShape: Qt.PointingHandCursor
             onClicked: parent.activated()
         }
+        ToolTip.visible: navMouse.containsMouse && tip !== ""
+        ToolTip.text: tip
+        ToolTip.delay: 400
     }
 
     DocumentManager {
@@ -207,7 +211,7 @@ ApplicationWindow {
                     color: modelData.primary ? (hov ? theme.accent2 : theme.accent)
                            : (hov ? theme.hover : "transparent")
                     border.width: modelData.primary ? 0 : 1
-                    border.color: hov ? theme.line : "transparent"
+                    border.color: hov ? theme.line : "#1a2130"
                     opacity: on ? 1 : 0.4
 
                     Behavior on color { ColorAnimation { duration: 120 } }
@@ -535,6 +539,8 @@ ApplicationWindow {
 
                 // переключатель регистра
                 Rectangle {
+                    id: caseToggle
+                    property bool checked: false
                     anchors.verticalCenter: parent.verticalCenter
                     width: 24
                     height: 24
@@ -567,17 +573,13 @@ ApplicationWindow {
                 // навигация и закрытие
                 SearchNavButton {
                     glyph: "↑"
+                    tip: qsTr("Предыдущее (Shift+F3)")
                     onActivated: editor.findPrev()
-                    ToolTip.visible: navMouse.containsMouse
-                    ToolTip.text: qsTr("Предыдущее (Shift+F3)")
-                    ToolTip.delay: 400
                 }
                 SearchNavButton {
                     glyph: "↓"
+                    tip: qsTr("Следующее (F3)")
                     onActivated: editor.findNext()
-                    ToolTip.visible: navMouse.containsMouse
-                    ToolTip.text: qsTr("Следующее (F3)")
-                    ToolTip.delay: 400
                 }
                 Rectangle {
                     width: 1
@@ -794,6 +796,7 @@ ApplicationWindow {
 
             Label {
                 anchors.verticalCenter: parent.verticalCenter
+                visible: editor.filePath !== ""
                 color: theme.muted
                 font.pixelSize: 11
                 text: editor.encoding + " · " + editor.lineEnding

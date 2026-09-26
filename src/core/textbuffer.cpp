@@ -155,10 +155,9 @@ bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
     m_lineEnding = detectLineEnding(text);
 
     text.replace("\r\n", "\n").replace('\r', '\n');
-    // Терминальный \n — отдельная пустая строка (как в Scintilla): «hi\n» — 2 строки.
-    m_lines = text.split('\n');
-    if (m_lines.isEmpty())
-        m_lines.append(QString());
+    // Piece table хранит текст с '\n' как разделителями; строковый слой
+    // вырезает строки без терминальных переводов («hi\n» — 2 строки).
+    m_pt.reset(text);
     return true;
 }
 
@@ -176,7 +175,11 @@ bool TextBuffer::save(const QString &path, QString *error)
         }
         tempName = temp.fileName();
 
-        QString text = m_lines.join(lineEndingString(m_lineEnding));
+        // В piece table разделители строк всегда '\n'; при сохранении
+        // заменяем на выбранный line ending — как join в буфере M1.
+        QString text = m_pt.toString();
+        if (m_lineEnding != LineEnding::Lf)
+            text.replace(u'\n', lineEndingString(m_lineEnding));
 
         switch (m_encoding) {
         case Encoding::Utf16Le: {
@@ -243,20 +246,7 @@ void TextBuffer::insertText(const Position &pos, const QString &text)
     normalized.replace('\r', '\n');
 
     Position p = clampPosition(pos, *this);
-    QString &line = m_lines[p.line];
-    const int col = p.column;
-
-    if (!normalized.contains('\n')) {
-        line.insert(col, normalized);
-        return;
-    }
-
-    const QStringList parts = normalized.split('\n');
-    const QString tail = line.mid(col);
-    line = line.left(col) + parts.first();
-    for (int i = 1; i < parts.size(); ++i)
-        m_lines.insert(p.line + i, parts.at(i));
-    m_lines[p.line + parts.size() - 1] += tail;
+    m_pt.insert(m_pt.lineStartOffset(p.line) + p.column, normalized);
 }
 
 void TextBuffer::removeText(const Position &from, const Position &to)
@@ -269,14 +259,9 @@ void TextBuffer::removeText(const Position &from, const Position &to)
     if (a == b)
         return;
 
-    if (a.line == b.line) {
-        m_lines[a.line].remove(a.column, b.column - a.column);
-        return;
-    }
-
-    m_lines[a.line] = m_lines[a.line].left(a.column)
-                      + m_lines[b.line].mid(b.column);
-    m_lines.remove(a.line + 1, b.line - a.line);
+    const int start = m_pt.lineStartOffset(a.line) + a.column;
+    const int end = m_pt.lineStartOffset(b.line) + b.column;
+    m_pt.remove(start, end - start);
 }
 
 Encoding TextBuffer::detectEncoding(const QByteArray &data)

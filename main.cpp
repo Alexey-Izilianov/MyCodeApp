@@ -66,7 +66,18 @@ int main(int argc, char *argv[])
 
     // Смоук-режим самотеста: MYCODEAPP_SHOT=<путь.png> — открыть окно,
     // снять скриншот и выйти. Используется для автоматической проверки.
+    // MYCODEAPP_AUTOCLOSE=1 — закрыть таб за 1 с до скриншота (тест очистки).
     const QByteArray shotPath = qgetenv("MYCODEAPP_SHOT");
+    if (qgetenv("MYCODEAPP_AUTOCLOSE") == "1" && !roots.isEmpty()) {
+        if (auto *manager = roots.first()->findChild<QObject *>(QStringLiteral("manager"))) {
+            QTimer::singleShot(1000, manager, [manager]() {
+                int dummy = -1;
+                QMetaObject::invokeMethod(manager, "close",
+                                          Q_ARG(int, 0));
+                Q_UNUSED(dummy);
+            });
+        }
+    }
     if (!shotPath.isEmpty() && !roots.isEmpty()) {
         if (auto *win = qobject_cast<QQuickWindow *>(roots.first())) {
             QTimer::singleShot(2000, win, [win, shotPath]() {

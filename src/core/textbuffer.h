@@ -1,7 +1,7 @@
 #pragma once
 
-#include <QVector>
 #include <QString>
+#include "piecetable.h"
 
 namespace core {
 
@@ -12,8 +12,10 @@ QString encodingName(Encoding e);      // "UTF-8", "UTF-16 LE", "Windows-1251", 
 QString lineEndingName(LineEnding le); // "LF", "CRLF", "CR"
 QString lineEndingString(LineEnding le);
 
-// Буфер M1: файл в памяти, строки без терминальных переводов.
-// Position: line/column, column — индекс QChar. Piece table — M2.
+// Буфер: piece table + line index, строки без терминальных переводов.
+// Position: line/column, column — индекс QChar.
+// C M2-1 хранение — PieceTable (правки не двигают существующий текст);
+// публичный API совпадает с буфером M1.
 class TextBuffer {
 public:
     struct Position {
@@ -31,9 +33,9 @@ public:
     bool loadFromData(const QByteArray &data, QString *error = nullptr);
     bool save(const QString &path, QString *error = nullptr); // temp + rename
 
-    int lineCount() const { return m_lines.size(); }
-    const QString &lineAt(int i) const { return m_lines.at(i); }
-    int lineLength(int line) const { return m_lines.at(line).size(); }
+    int lineCount() const { return m_pt.lineCount(); }
+    QString lineAt(int i) const { return m_pt.line(i); }
+    int lineLength(int line) const { return m_pt.lineLength(line); }
 
     Encoding encoding() const { return m_encoding; }
     void setEncoding(Encoding e) { m_encoding = e; }
@@ -43,13 +45,16 @@ public:
     void insertText(const Position &pos, const QString &text);
     void removeText(const Position &from, const Position &to);
 
+    // Неизменяемый снимок для фоновых потоков (поиск): копирование O(1)
+    PieceTable::Snapshot snapshot() const { return m_pt.snapshot(); }
+
     static Position clampPosition(const Position &pos, const TextBuffer &buf);
 
 private:
     static Encoding detectEncoding(const QByteArray &data);
     static LineEnding detectLineEnding(const QString &text);
 
-    QVector<QString> m_lines;
+    PieceTable m_pt;
     Encoding m_encoding = Encoding::Utf8;
     LineEnding m_lineEnding = LineEnding::Lf;
 };

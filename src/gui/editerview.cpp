@@ -14,6 +14,7 @@
 #include <QtMath>
 #include <QUrl>
 #include "src/core/document.h"
+#include "src/core/piecetable.h"
 #include "src/core/textbuffer.h"
 #include "src/services/searchengine.h"
 
@@ -214,17 +215,13 @@ void EditorView::find(const QString &needle, bool caseSensitive)
     }
     m_searchNeedle = needle;
     m_searchCase = caseSensitive;
-    // Снимок строк под мьютексом: воркер SearchEngine живёт в другом потоке,
-    // читать буфер на месте он не может (пользователь правит текст).
-    QStringList lines;
+    // Снимок под мьютексом: воркер SearchEngine живёт в другом потоке, читать
+    // буфер на месте он не может (пользователь правит текст). Снимок piece
+    // table копируется неявно (COW) — O(1), строки материализуются в фоне.
     {
         QMutexLocker lock(&m_docMutex);
-        const TextBuffer &buf = m_document->buffer();
-        lines.reserve(buf.lineCount());
-        for (int i = 0; i < buf.lineCount(); ++i)
-            lines.append(buf.lineAt(i));
+        m_searchEngine->start(m_document->buffer().snapshot(), needle, caseSensitive);
     }
-    m_searchEngine->start(lines, needle, caseSensitive);
 }
 
 void EditorView::findNext()
@@ -595,7 +592,18 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
 
     if (!m_document) {
-        // пустая сцена
+        // Пустая сцена: прячем всё, что осталось от прошлого документа,
+        // иначе он «зависает» на фоне после закрытия таба.
+        for (QSGTextNode *node : m_textPool)
+            node->clear();
+        for (QSGSimpleRectNode *n : m_selPool) {
+            m_selLayer->removeChildNode(n);
+            delete n;
+        }
+        m_selPool.clear();
+        clearMatchRects();
+        m_caret->setRect(QRectF());
+        m_lastFirstLine = -1;
         return root;
     }
 

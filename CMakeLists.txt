@@ -16,6 +16,7 @@ FetchContent_Declare(spdlog
 FetchContent_MakeAvailable(spdlog)
 
 set(CORE_SOURCES
+    src/core/piecetable.h src/core/piecetable.cpp
     src/core/textbuffer.h src/core/textbuffer.cpp
     src/core/document.h src/core/document.cpp
 )
@@ -83,11 +84,27 @@ target_link_libraries(test_highlighter PRIVATE Qt6::Gui Qt6::Test)
 add_test(NAME highlighter COMMAND test_highlighter)
 
 qt_add_executable(test_searchengine
+    src/core/piecetable.h src/core/piecetable.cpp
     src/services/searchengine.h src/services/searchengine.cpp
     tests/searchengine_test.cpp)
 target_include_directories(test_searchengine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_searchengine PRIVATE Qt6::Test)
 add_test(NAME searchengine COMMAND test_searchengine)
+
+qt_add_executable(test_piecetable
+    src/core/piecetable.h src/core/piecetable.cpp
+    tests/piecetable_test.cpp)
+target_include_directories(test_piecetable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_piecetable PRIVATE Qt6::Test)
+add_test(NAME piecetable COMMAND test_piecetable)
+
+# Бенчмарк M2-1 (запуск вручную): bench_piecetable.exe <файл>
+qt_add_executable(bench_piecetable
+    src/core/piecetable.h src/core/piecetable.cpp
+    tests/bench_piecetable.cpp)
+target_include_directories(bench_piecetable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(bench_piecetable PRIVATE Qt6::Core)
+set_target_properties(bench_piecetable PROPERTIES WIN32_EXECUTABLE FALSE)
 
 qt_add_executable(test_document
     src/core/document.h src/core/document.cpp

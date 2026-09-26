@@ -9,6 +9,19 @@ SearchEngine::SearchEngine(QObject *parent)
     qRegisterMetaType<SearchEngine::Match>();
 }
 
+void SearchEngine::start(const core::PieceTable::Snapshot &snapshot,
+                         const QString &needle, bool caseSensitive)
+{
+    const int id = ++m_runId;
+    const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive
+                                                 : Qt::CaseInsensitive;
+    QThreadPool::globalInstance()->start([this, id, snapshot, needle, cs]() {
+        // Материализация всех строк дорогая и делается здесь, в фоне:
+        // на GUI-потоке снимок стоил O(1).
+        searchLines(snapshot.lines(), id, needle, cs);
+    });
+}
+
 void SearchEngine::start(const QStringList &lines, const QString &needle,
                          bool caseSensitive)
 {
@@ -16,25 +29,32 @@ void SearchEngine::start(const QStringList &lines, const QString &needle,
     const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive
                                                  : Qt::CaseInsensitive;
     QThreadPool::globalInstance()->start([this, id, lines, needle, cs]() {
-        QVector<Match> matches;
-        matches.reserve(256);
-        const int n = needle.size();
-        for (int i = 0; i < lines.size(); ++i) {
-            if ((i & 255) == 0 && m_runId.load(std::memory_order_acquire) != id)
-                return; // запущен новый поиск — этот прогон не нужен
-            int from = 0;
-            while (true) {
-                const int idx = lines.at(i).indexOf(needle, from, cs);
-                if (idx < 0)
-                    break;
-                matches.append({i, idx, n});
-                from = idx + n;
-                if (matches.size() >= 1'000'000) // предохранитель памяти
-                    break;
-            }
-        }
-        if (m_runId.load(std::memory_order_acquire) != id)
-            return;
-        emit resultsReady(matches); // auto->queued: придёт в GUI-поток
+        searchLines(lines, id, needle, cs);
     });
+}
+
+void SearchEngine::searchLines(const QStringList &lines, int id,
+                               const QString &needle, Qt::CaseSensitivity cs)
+{
+    // Выполняется в текущем (фоновом) потоке — задача в пул ставят перегрузки start
+    QVector<Match> matches;
+    matches.reserve(256);
+    const int n = needle.size();
+    for (int i = 0; i < lines.size(); ++i) {
+        if ((i & 255) == 0 && m_runId.load(std::memory_order_acquire) != id)
+            return; // запущен новый поиск — этот прогон не нужен
+        int from = 0;
+        while (true) {
+            const int idx = lines.at(i).indexOf(needle, from, cs);
+            if (idx < 0)
+                break;
+            matches.append({i, idx, n});
+            from = idx + n;
+            if (matches.size() >= 1'000'000) // предохранитель памяти
+                break;
+        }
+    }
+    if (m_runId.load(std::memory_order_acquire) != id)
+        return;
+    emit resultsReady(matches); // auto->queued: придёт в GUI-поток
 }
