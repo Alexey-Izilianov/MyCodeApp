@@ -6,6 +6,28 @@
 
 (comment) @comment
 
+; Директивы препроцессора целиком: сама директива, путь #include и имя
+; макроса. Стоят раньше @string — путь "file.h" иначе стал бы строкой.
+[
+  "#include"
+  "#define"
+  "#if"
+  "#ifdef"
+  "#ifndef"
+  "#else"
+  "#elif"
+  "#endif"
+  (preproc_directive)
+] @preprocessor
+(preproc_include
+  path: (_) @preprocessor)
+(preproc_def
+  name: (identifier) @preprocessor)
+(preproc_function_def
+  name: (identifier) @preprocessor)
+(preproc_ifdef
+  name: (identifier) @preprocessor)
+
 [
   (string_literal)
   (raw_string_literal)
@@ -23,18 +45,6 @@
   (null)
   (this)
 ] @constant
-
-[
-  "#include"
-  "#define"
-  "#if"
-  "#ifdef"
-  "#ifndef"
-  "#else"
-  "#elif"
-  "#endif"
-  (preproc_directive)
-] @preprocessor
 
 ; Функции: объявления и вызовы
 (function_declarator

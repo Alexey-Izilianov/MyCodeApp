@@ -21,9 +21,9 @@ struct Style {
 
 // Индекс в таблице — Span::rule
 constexpr Style kStyles[] = {
-    {"keyword", 0x569cd6},  {"type", 0x4ec9b0},    {"function", 0xdcdcaa},
-    {"string", 0xce9178},   {"escape", 0xd7ba7d},  {"number", 0xb5cea8},
-    {"constant", 0x569cd6}, {"comment", 0x6a9955}, {"preprocessor", 0xc586c0},
+    {"keyword", 0xcf8e6d},  {"type", 0x4fc1b5},    {"function", 0x56a8f5},
+    {"string", 0x6aab73},   {"escape", 0xd5b778},  {"number", 0xb5a1e6},
+    {"constant", 0xcf8e6d}, {"comment", 0x7a7e85}, {"preprocessor", 0xe06c75},
 };
 
 constexpr int kMaxLineChars = 10000; // дальше строка без подсветки
@@ -284,4 +284,9 @@ QColor SyntaxHighlighter::color(int rule)
 {
     return rule >= 0 && rule < int(std::size(kStyles)) ? QColor(kStyles[rule].color)
                                                        : QColor();
+}
+
+const char *SyntaxHighlighter::styleName(int rule)
+{
+    return rule >= 0 && rule < int(std::size(kStyles)) ? kStyles[rule].capture : "";
 }

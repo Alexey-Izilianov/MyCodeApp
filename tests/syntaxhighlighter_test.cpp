@@ -13,6 +13,7 @@ class SyntaxHighlighterTest : public QObject {
 private slots:
     void languages();
     void cppColors();
+    void preprocessorLines();
     void multilineComment();
     void pythonColors();
     void incrementalEdit();
@@ -23,7 +24,7 @@ private:
     static bool parse(SyntaxHighlighter &hl, TextBuffer &buf, const QByteArray &text);
     static bool waitIdle(SyntaxHighlighter &hl);
     static Spans highlightAll(const SyntaxHighlighter &hl, const TextBuffer &buf);
-    static QColor colorAt(const Spans &spans, int line, int column);
+    static QByteArray styleAt(const Spans &spans, int line, int column);
 };
 
 bool SyntaxHighlighterTest::parse(SyntaxHighlighter &hl, TextBuffer &buf,
@@ -54,23 +55,23 @@ Spans SyntaxHighlighterTest::highlightAll(const SyntaxHighlighter &hl, const Tex
     return out;
 }
 
-QColor SyntaxHighlighterTest::colorAt(const Spans &spans, int line, int column)
+QByteArray SyntaxHighlighterTest::styleAt(const Spans &spans, int line, int column)
 {
     for (const SyntaxHighlighter::Span &s : spans.value(line))
         if (column >= s.start && column < s.start + s.length)
-            return SyntaxHighlighter::color(s.rule);
+            return SyntaxHighlighter::styleName(s.rule);
     return {};
 }
 
 namespace {
-const QColor kKeyword(0x569cd6);
-const QColor kType(0x4ec9b0);
-const QColor kFunction(0xdcdcaa);
-const QColor kString(0xce9178);
-const QColor kEscape(0xd7ba7d);
-const QColor kNumber(0xb5cea8);
-const QColor kComment(0x6a9955);
-const QColor kPreprocessor(0xc586c0);
+const QByteArray kKeyword("keyword");
+const QByteArray kType("type");
+const QByteArray kFunction("function");
+const QByteArray kString("string");
+const QByteArray kEscape("escape");
+const QByteArray kNumber("number");
+const QByteArray kComment("comment");
+const QByteArray kPreprocessor("preprocessor");
 } // namespace
 
 void SyntaxHighlighterTest::languages()
@@ -95,18 +96,39 @@ void SyntaxHighlighterTest::cppColors()
                   "const char *s = \"a\\nb\";\n"));
     const Spans spans = highlightAll(hl, buf);
 
-    QCOMPARE(colorAt(spans, 0, 0), kPreprocessor);
-    QCOMPARE(colorAt(spans, 0, 10), kString);   // <vector>
-    QCOMPARE(colorAt(spans, 1, 0), kType);      // int
-    QCOMPARE(colorAt(spans, 1, 4), kFunction);  // main
-    QCOMPARE(colorAt(spans, 1, 13), kKeyword);  // return
-    QCOMPARE(colorAt(spans, 1, 20), kNumber);   // 42
-    QCOMPARE(colorAt(spans, 2, 0), kKeyword);   // const
-    QCOMPARE(colorAt(spans, 2, 16), kString);   // "a
-    QCOMPARE(colorAt(spans, 2, 18), kEscape);   // \n внутри строки
-    QCOMPARE(colorAt(spans, 2, 20), kString);   // b"
-    QCOMPARE(colorAt(spans, 2, 6), kType);      // char
-    QCOMPARE(colorAt(spans, 2, 12), QColor());  // s — без подсветки
+    QCOMPARE(styleAt(spans, 0, 0), kPreprocessor);
+    QCOMPARE(styleAt(spans, 0, 10), kPreprocessor); // <vector> — часть директивы
+    QCOMPARE(styleAt(spans, 1, 0), kType);      // int
+    QCOMPARE(styleAt(spans, 1, 4), kFunction);  // main
+    QCOMPARE(styleAt(spans, 1, 13), kKeyword);  // return
+    QCOMPARE(styleAt(spans, 1, 20), kNumber);   // 42
+    QCOMPARE(styleAt(spans, 2, 0), kKeyword);   // const
+    QCOMPARE(styleAt(spans, 2, 16), kString);   // "a
+    QCOMPARE(styleAt(spans, 2, 18), kEscape);   // \n внутри строки
+    QCOMPARE(styleAt(spans, 2, 20), kString);   // b"
+    QCOMPARE(styleAt(spans, 2, 6), kType);      // char
+    QCOMPARE(styleAt(spans, 2, 12), QByteArray());  // s — без подсветки
+}
+
+void SyntaxHighlighterTest::preprocessorLines()
+{
+    SyntaxHighlighter hl;
+    TextBuffer buf;
+    hl.setLanguageForFile(QStringLiteral("a.cpp"));
+    QVERIFY(parse(hl, buf,
+                  "#include \"doc.h\"\n"
+                  "#define MAX_SIZE (1 + 2)\n"
+                  "#ifdef DEBUG\n"
+                  "#endif\n"));
+    const Spans spans = highlightAll(hl, buf);
+
+    QCOMPARE(styleAt(spans, 0, 0), kPreprocessor);
+    QCOMPARE(styleAt(spans, 0, 10), kPreprocessor); // "doc.h"
+    QCOMPARE(styleAt(spans, 1, 0), kPreprocessor);
+    QCOMPARE(styleAt(spans, 1, 8), kPreprocessor);  // MAX_SIZE
+    QCOMPARE(styleAt(spans, 1, 18), QByteArray());  // тело макроса — один неразобранный токен
+    QCOMPARE(styleAt(spans, 2, 7), kPreprocessor);  // DEBUG
+    QCOMPARE(styleAt(spans, 3, 0), kPreprocessor);
 }
 
 void SyntaxHighlighterTest::multilineComment()
@@ -117,17 +139,17 @@ void SyntaxHighlighterTest::multilineComment()
     QVERIFY(parse(hl, buf, "int a; /* one\ntwo\nthree */ int b;\n"));
     const Spans spans = highlightAll(hl, buf);
 
-    QCOMPARE(colorAt(spans, 0, 7), kComment);
-    QCOMPARE(colorAt(spans, 1, 0), kComment);
-    QCOMPARE(colorAt(spans, 1, 2), kComment);
-    QCOMPARE(colorAt(spans, 2, 7), kComment);   // закрывающее */
-    QCOMPARE(colorAt(spans, 2, 9), kType);      // int после комментария
+    QCOMPARE(styleAt(spans, 0, 7), kComment);
+    QCOMPARE(styleAt(spans, 1, 0), kComment);
+    QCOMPARE(styleAt(spans, 1, 2), kComment);
+    QCOMPARE(styleAt(spans, 2, 7), kComment);   // закрывающее */
+    QCOMPARE(styleAt(spans, 2, 9), kType);      // int после комментария
 
     // Запрос только середины: комментарий начат выше видимой области
     Spans middle;
     hl.highlightLines(1, {buf.lineAt(1)}, middle);
     QCOMPARE(middle.size(), 1);
-    QCOMPARE(colorAt(middle, 0, 0), kComment);
+    QCOMPARE(styleAt(middle, 0, 0), kComment);
 }
 
 void SyntaxHighlighterTest::pythonColors()
@@ -144,19 +166,19 @@ void SyntaxHighlighterTest::pythonColors()
                   "print(len(a), 2)\n"));
     const Spans spans = highlightAll(hl, buf);
 
-    QCOMPARE(colorAt(spans, 4, 8), kFunction);   // read — метод через атрибут
-    QCOMPARE(colorAt(spans, 4, 0), QColor());    // bpy
-    QCOMPARE(colorAt(spans, 5, 0), kFunction);   // print
-    QCOMPARE(colorAt(spans, 5, 6), kFunction);   // len
-    QCOMPARE(colorAt(spans, 5, 14), kNumber);
+    QCOMPARE(styleAt(spans, 4, 8), kFunction);   // read — метод через атрибут
+    QCOMPARE(styleAt(spans, 4, 0), QByteArray());    // bpy
+    QCOMPARE(styleAt(spans, 5, 0), kFunction);   // print
+    QCOMPARE(styleAt(spans, 5, 6), kFunction);   // len
+    QCOMPARE(styleAt(spans, 5, 14), kNumber);
 
-    QCOMPARE(colorAt(spans, 0, 0), kKeyword);
-    QCOMPARE(colorAt(spans, 0, 4), kFunction);
-    QCOMPARE(colorAt(spans, 1, 4), kString);
-    QCOMPARE(colorAt(spans, 2, 4), kString);    // docstring на второй строке
-    QCOMPARE(colorAt(spans, 3, 4), kKeyword);
-    QCOMPARE(colorAt(spans, 3, 15), kNumber);
-    QCOMPARE(colorAt(spans, 3, 18), kComment);
+    QCOMPARE(styleAt(spans, 0, 0), kKeyword);
+    QCOMPARE(styleAt(spans, 0, 4), kFunction);
+    QCOMPARE(styleAt(spans, 1, 4), kString);
+    QCOMPARE(styleAt(spans, 2, 4), kString);    // docstring на второй строке
+    QCOMPARE(styleAt(spans, 3, 4), kKeyword);
+    QCOMPARE(styleAt(spans, 3, 15), kNumber);
+    QCOMPARE(styleAt(spans, 3, 18), kComment);
 }
 
 void SyntaxHighlighterTest::incrementalEdit()
@@ -165,7 +187,7 @@ void SyntaxHighlighterTest::incrementalEdit()
     TextBuffer buf;
     hl.setLanguageForFile(QStringLiteral("a.cpp"));
     QVERIFY(parse(hl, buf, "int a;\nint b;\nint c; */\n"));
-    QCOMPARE(colorAt(highlightAll(hl, buf), 1, 0), kType);
+    QCOMPARE(styleAt(highlightAll(hl, buf), 1, 0), kType);
 
     // Открывающий /* на первой строке — две следующие уходят в комментарий
     // (незакрытый /* tree-sitter комментарием не считает, поэтому */ уже есть)
@@ -173,16 +195,16 @@ void SyntaxHighlighterTest::incrementalEdit()
     hl.applyEdits(buf.takeEdits(), buf.snapshot());
     QVERIFY(waitIdle(hl));
     Spans spans = highlightAll(hl, buf);
-    QCOMPARE(colorAt(spans, 0, 0), kType);
-    QCOMPARE(colorAt(spans, 1, 0), kComment);
-    QCOMPARE(colorAt(spans, 2, 4), kComment);
+    QCOMPARE(styleAt(spans, 0, 0), kType);
+    QCOMPARE(styleAt(spans, 1, 0), kComment);
+    QCOMPARE(styleAt(spans, 2, 4), kComment);
 
     buf.removeText({0, 6}, {0, 9});
     hl.applyEdits(buf.takeEdits(), buf.snapshot());
     QVERIFY(waitIdle(hl));
     spans = highlightAll(hl, buf);
-    QCOMPARE(colorAt(spans, 1, 0), kType);
-    QCOMPARE(colorAt(spans, 2, 0), kType);
+    QCOMPARE(styleAt(spans, 1, 0), kType);
+    QCOMPARE(styleAt(spans, 2, 0), kType);
 }
 
 void SyntaxHighlighterTest::editsDuringParse()
@@ -243,8 +265,8 @@ void SyntaxHighlighterTest::documentSwitchDropsStaleParse()
     QVERIFY(parse(hl, second, "int x;\n/* x */\n"));
     QTest::qWait(300);
     const Spans spans = highlightAll(hl, second);
-    QCOMPARE(colorAt(spans, 1, 0), kComment);
-    QCOMPARE(colorAt(spans, 0, 0), kType);
+    QCOMPARE(styleAt(spans, 1, 0), kComment);
+    QCOMPARE(styleAt(spans, 0, 0), kType);
 }
 
 QTEST_GUILESS_MAIN(SyntaxHighlighterTest)

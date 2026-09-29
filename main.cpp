@@ -31,10 +31,7 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     spdlog::info("main: engine создан");
 
-    // Путь к файлу можно передать аргументом командной строки
-    // (appMyCodeApp.exe C:/path/to/file) — файл грузится при старте.
-    // В QML-цепочку (context property + onCompleted) не верим: после загрузки
-    // сцены выставляем свойство filePath прямо в C++-объект редактора.
+    // appMyCodeApp.exe <файл> — открыть файл при старте (через DocumentManager)
     const QString startPath = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
 
     QObject::connect(

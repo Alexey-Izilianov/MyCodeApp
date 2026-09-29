@@ -21,6 +21,7 @@ private slots:
     void emptyDocument();
     void snapshotIsolated();
     void snapshotLines();
+    void offsetToLine();
     void snapshotChunks();
 
 private:
@@ -226,6 +227,17 @@ void PieceTableTest::snapshotLines()
     QCOMPARE(lines.at(0), QStringLiteral("a"));
     QCOMPARE(lines.at(1), QStringLiteral("bb"));
     QCOMPARE(lines.at(2), QStringLiteral("ccc"));
+}
+
+void PieceTableTest::offsetToLine()
+{
+    PieceTable pt;
+    pt.reset(QStringLiteral("ab\n\ncd"));
+    QCOMPARE(pt.offsetToLine(0), 0);
+    QCOMPARE(pt.offsetToLine(2), 0); // сам '\n' — конец строки 0
+    QCOMPARE(pt.offsetToLine(3), 1);
+    QCOMPARE(pt.offsetToLine(4), 2);
+    QCOMPARE(pt.offsetToLine(6), 2); // конец текста
 }
 
 void PieceTableTest::snapshotChunks()

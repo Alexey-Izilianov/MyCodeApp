@@ -199,8 +199,7 @@ void TextBufferTest::documentDirty()
     QVERIFY(doc.load(path));
     QCOMPARE(doc.isDirty(), false);
 
-    doc.buffer().insertText(TextBuffer::Position{0, 1}, "y");
-    doc.setDirty(true);
+    doc.replace({0, 1}, {0, 1}, QStringLiteral("y"), Document::EditKind::Other, {});
     QCOMPARE(doc.isDirty(), true);
     QCOMPARE(doc.displayName(), QFileInfo(path).fileName());
 

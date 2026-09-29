@@ -46,6 +46,7 @@ public:
     void highlightLines(int firstLine, const QStringList &lines,
                         QVector<QVector<Span>> &out) const;
     static QColor color(int rule);
+    static const char *styleName(int rule); // "keyword", "string", ...
 
 signals:
     void updated();

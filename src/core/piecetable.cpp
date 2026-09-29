@@ -70,7 +70,7 @@ QString PieceTable::Core::line(int line) const
 int PieceTable::Core::offsetToLine(int offset) const
 {
     // Число '\n' строго раньше offset (позиция на самом '\n' — конец строки)
-    const auto it = std::upper_bound(newlines.cbegin(), newlines.cend(), offset);
+    const auto it = std::lower_bound(newlines.cbegin(), newlines.cend(), offset);
     return int(it - newlines.cbegin());
 }
 

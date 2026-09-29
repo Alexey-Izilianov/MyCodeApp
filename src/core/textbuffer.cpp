@@ -1,10 +1,10 @@
 #include "textbuffer.h"
 
 #include <QFile>
-#include <QFileInfo>
+#include <QSaveFile>
 #include <QStringDecoder>
 #include <QStringEncoder>
-#include <QTemporaryFile>
+#include <limits>
 #include <utility>
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -115,9 +115,9 @@ bool TextBuffer::load(const QString &path, QString *error)
 
 bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
 {
-    if (raw.size() >= 8192 * 1024 * 1024LL) { // предел ТЗ — 1 ГБ
+    if (raw.size() > std::numeric_limits<int>::max()) { // смещения piece table — int
         if (error)
-            *error = QStringLiteral("файл больше 1 ГБ");
+            *error = QStringLiteral("файл больше 2 ГБ");
         return false;
     }
 
@@ -166,69 +166,39 @@ bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
 
 bool TextBuffer::save(const QString &path, QString *error)
 {
-    QString tempName;
+    // Разделители в piece table всегда '\n'
+    QString text = m_pt.toString();
+    if (m_lineEnding != LineEnding::Lf)
+        text.replace(u'\n', lineEndingString(m_lineEnding));
+
     QByteArray encoded;
-    {
-        QTemporaryFile temp(QFileInfo(path).absolutePath() + "/XXXXXX.tmp");
-        temp.setAutoRemove(false);
-        if (!temp.open()) {
-            if (error)
-                *error = temp.errorString();
-            return false;
-        }
-        tempName = temp.fileName();
-
-        // В piece table разделители строк всегда '\n'; при сохранении
-        // заменяем на выбранный line ending — как join в буфере M1.
-        QString text = m_pt.toString();
-        if (m_lineEnding != LineEnding::Lf)
-            text.replace(u'\n', lineEndingString(m_lineEnding));
-
-        switch (m_encoding) {
-        case Encoding::Utf16Le: {
-            QStringEncoder enc(QStringConverter::Utf16LE);
-            encoded = ("\xFF\xFE") + enc(text);
-            break;
-        }
-        case Encoding::Utf16Be: {
-            QStringEncoder enc(QStringConverter::Utf16BE);
-            encoded = ("\xFE\xFF") + enc(text);
-            break;
-        }
-        case Encoding::Cp1251:
+    switch (m_encoding) {
+    case Encoding::Utf16Le:
+        encoded = QByteArray("\xFF\xFE", 2) + QStringEncoder(QStringConverter::Utf16LE)(text);
+        break;
+    case Encoding::Utf16Be:
+        encoded = QByteArray("\xFE\xFF", 2) + QStringEncoder(QStringConverter::Utf16BE)(text);
+        break;
+    case Encoding::Cp1251:
 #ifdef Q_OS_WIN
-            encoded = stringToCp1251(text);
+        encoded = stringToCp1251(text);
 #else
-            encoded = text.toLatin1();
+        encoded = text.toLatin1();
 #endif
-            break;
-        case Encoding::Latin1:
-            encoded = text.toLatin1();
-            break;
-        case Encoding::Utf8:
-            encoded = text.toUtf8();
-            break;
-        }
-
-        if (temp.write(encoded) != encoded.size()) {
-            if (error)
-                *error = temp.errorString();
-            temp.remove();
-            return false;
-        }
-    } // QTemporaryFile уничтожен — хэндл закрыт, иначе rename на Windows падает
-
-    QFile target(path);
-    if (target.exists() && !target.remove()) {
-        if (error)
-            *error = target.errorString();
-        QFile::remove(tempName);
-        return false;
+        break;
+    case Encoding::Latin1:
+        encoded = text.toLatin1();
+        break;
+    case Encoding::Utf8:
+        encoded = text.toUtf8();
+        break;
     }
-    if (!QFile::rename(tempName, path)) {
+
+    QSaveFile file(path); // temp + атомарная замена при commit()
+    if (!file.open(QIODevice::WriteOnly) || file.write(encoded) != encoded.size()
+        || !file.commit()) {
         if (error)
-            *error = QStringLiteral("rename не удался");
-        QFile::remove(tempName);
+            *error = file.errorString();
         return false;
     }
     return true;
@@ -243,42 +213,55 @@ TextBuffer::Position TextBuffer::clampPosition(const Position &pos,
     return p;
 }
 
+QString TextBuffer::normalizeNewlines(QString text)
+{
+    return text.replace(QStringLiteral("\r\n"), QStringLiteral("\n")).replace(u'\r', u'\n');
+}
+
+int TextBuffer::offsetOf(const Position &pos) const
+{
+    const Position p = clampPosition(pos, *this);
+    return m_pt.lineStartOffset(p.line) + p.column;
+}
+
+TextBuffer::Position TextBuffer::positionOf(int offset) const
+{
+    offset = qBound(0, offset, m_pt.length());
+    const int line = m_pt.offsetToLine(offset);
+    return {line, offset - m_pt.lineStartOffset(line)};
+}
+
+QString TextBuffer::text(const Position &from, const Position &to) const
+{
+    const int a = offsetOf(qMin(from, to));
+    return m_pt.textAt(a, offsetOf(qMax(from, to)) - a);
+}
+
+void TextBuffer::replace(int offset, int count, const QString &text)
+{
+    offset = qBound(0, offset, m_pt.length());
+    count = qBound(0, count, m_pt.length() - offset);
+    if (count == 0 && text.isEmpty())
+        return;
+    const Position start = positionOf(offset);
+    const Position oldEnd = positionOf(offset + count);
+    if (count > 0)
+        m_pt.remove(offset, count);
+    if (!text.isEmpty())
+        m_pt.insert(offset, text);
+    const int newEnd = offset + int(text.size());
+    recordEdit({offset, offset + count, newEnd, start, oldEnd, positionOf(newEnd)});
+}
+
 void TextBuffer::insertText(const Position &pos, const QString &text)
 {
-    QString normalized = text;
-    normalized.replace('\r', '\n');
-
-    Position p = clampPosition(pos, *this);
-    if (normalized.isEmpty())
-        return;
-    const int offset = m_pt.lineStartOffset(p.line) + p.column;
-    m_pt.insert(offset, normalized);
-
-    Position end = p;
-    const int lastNl = normalized.lastIndexOf(u'\n');
-    if (lastNl < 0) {
-        end.column += normalized.size();
-    } else {
-        end.line += normalized.count(u'\n');
-        end.column = normalized.size() - lastNl - 1;
-    }
-    recordEdit({offset, offset, offset + int(normalized.size()), p, p, end});
+    replace(offsetOf(pos), 0, normalizeNewlines(text));
 }
 
 void TextBuffer::removeText(const Position &from, const Position &to)
 {
-    Position a = from, b = to;
-    if (b < a)
-        std::swap(a, b);
-    a = clampPosition(a, *this);
-    b = clampPosition(b, *this);
-    if (a == b)
-        return;
-
-    const int start = m_pt.lineStartOffset(a.line) + a.column;
-    const int end = m_pt.lineStartOffset(b.line) + b.column;
-    m_pt.remove(start, end - start);
-    recordEdit({start, end, start, a, b, a});
+    const int a = offsetOf(qMin(from, to));
+    replace(a, offsetOf(qMax(from, to)) - a, {});
 }
 
 void TextBuffer::recordEdit(const Edit &e)

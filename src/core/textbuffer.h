@@ -31,23 +31,30 @@ public:
     bool load(const QString &path, QString *error = nullptr);
     // Декодирование готовых байтов (используется асинхронной загрузкой Document)
     bool loadFromData(const QByteArray &data, QString *error = nullptr);
-    bool save(const QString &path, QString *error = nullptr); // temp + rename
+    bool save(const QString &path, QString *error = nullptr); // атомарно (QSaveFile)
 
+    int length() const { return m_pt.length(); }
     int lineCount() const { return m_pt.lineCount(); }
     QString lineAt(int i) const { return m_pt.line(i); }
     int lineLength(int line) const { return m_pt.lineLength(line); }
+
+    int offsetOf(const Position &pos) const; // позиция зажимается в границы текста
+    Position positionOf(int offset) const;
+    QString text(const Position &from, const Position &to) const;
 
     Encoding encoding() const { return m_encoding; }
     void setEncoding(Encoding e) { m_encoding = e; }
     LineEnding lineEnding() const { return m_lineEnding; }
     void setLineEnding(LineEnding le) { m_lineEnding = le; }
 
-    void insertText(const Position &pos, const QString &text);
+    // Базовая правка: [offset, offset + count) -> text (переводы строк — только '\n')
+    void replace(int offset, int count, const QString &text);
+    void insertText(const Position &pos, const QString &text); // CRLF/CR -> LF
     void removeText(const Position &from, const Position &to);
+    static QString normalizeNewlines(QString text);
 
-    // Журнал правок для инкрементальных потребителей (tree-sitter, M2-2):
-    // каждая insert/remove кладёт запись, потребитель забирает takeEdits().
-    // Смещения — в QChar по всему тексту, позиции — line/column.
+    // Журнал правок для инкрементальных потребителей (tree-sitter):
+    // смещения — в QChar по всему тексту.
     struct Edit {
         int startOffset = 0;
         int oldEndOffset = 0;

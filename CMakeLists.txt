@@ -72,10 +72,14 @@ qt_add_executable(appMyCodeApp
     ${CORE_SOURCES}
 )
 
+set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(appMyCodeApp
     URI MyCodeApp
     QML_FILES
         Main.qml
+        qml/Theme.qml qml/AppMenu.qml qml/AppMenuSeparator.qml qml/CrossIcon.qml
+        qml/IconButton.qml qml/FlatButton.qml qml/TabStrip.qml qml/FindBar.qml
+        qml/StatusBar.qml qml/EmptyState.qml qml/LoadOverlay.qml qml/CloseDialog.qml
         SOURCES src/gui/editerview.h src/gui/editerview.cpp
                src/services/documentmanager.h src/services/documentmanager.cpp
 )
@@ -150,6 +154,18 @@ target_include_directories(test_syntaxhighlighter PRIVATE ${CMAKE_CURRENT_SOURCE
 target_link_libraries(test_syntaxhighlighter PRIVATE Qt6::Gui Qt6::Test ${SYNTAX_LIBS})
 qt_add_resources(test_syntaxhighlighter "test_queries" PREFIX "/" FILES ${SYNTAX_QUERIES})
 add_test(NAME syntaxhighlighter COMMAND test_syntaxhighlighter)
+
+qt_add_executable(test_editorview
+    ${CORE_SOURCES} ${SYNTAX_SOURCES}
+    src/gui/editerview.h src/gui/editerview.cpp
+    src/services/highlighter.h src/services/highlighter.cpp
+    src/services/searchengine.h src/services/searchengine.cpp
+    tests/editorview_test.cpp)
+target_include_directories(test_editorview PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_editorview PRIVATE Qt6::Quick Qt6::Test ${SYNTAX_LIBS})
+qt_add_resources(test_editorview "test_editor_assets" PREFIX "/"
+    FILES assets/highlight.json ${SYNTAX_QUERIES})
+add_test(NAME editorview COMMAND test_editorview)
 
 # Бенчмарк M2-1 (запуск вручную): bench_piecetable.exe <файл>
 qt_add_executable(bench_piecetable
