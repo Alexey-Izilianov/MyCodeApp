@@ -45,6 +45,21 @@ public:
     void insertText(const Position &pos, const QString &text);
     void removeText(const Position &from, const Position &to);
 
+    // Журнал правок для инкрементальных потребителей (tree-sitter, M2-2):
+    // каждая insert/remove кладёт запись, потребитель забирает takeEdits().
+    // Смещения — в QChar по всему тексту, позиции — line/column.
+    struct Edit {
+        int startOffset = 0;
+        int oldEndOffset = 0;
+        int newEndOffset = 0;
+        Position start;
+        Position oldEnd;
+        Position newEnd;
+    };
+    // overflow = true: журнал переполнялся и был сброшен — потребителю
+    // нужен полный пересчёт вместо применения правок.
+    QVector<Edit> takeEdits(bool *overflow = nullptr);
+
     // Неизменяемый снимок для фоновых потоков (поиск): копирование O(1)
     PieceTable::Snapshot snapshot() const { return m_pt.snapshot(); }
 
@@ -54,7 +69,11 @@ private:
     static Encoding detectEncoding(const QByteArray &data);
     static LineEnding detectLineEnding(const QString &text);
 
+    void recordEdit(const Edit &e);
+
     PieceTable m_pt;
+    QVector<Edit> m_edits;
+    bool m_editsOverflow = false;
     Encoding m_encoding = Encoding::Utf8;
     LineEnding m_lineEnding = LineEnding::Lf;
 };

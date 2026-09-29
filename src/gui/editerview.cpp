@@ -44,6 +44,10 @@ EditorView::EditorView(QQuickItem *parent)
 
     // Правила подсветки зашиты в ресурсы приложения.
     m_highlighter.loadRules(QStringLiteral(":/assets/highlight.json"));
+    connect(&m_syntax, &SyntaxHighlighter::updated, this, [this] {
+        m_lastFirstLine = -1;
+        update();
+    });
 
     m_searchEngine = new SearchEngine(this);
     connect(m_searchEngine, &SearchEngine::resultsReady, this,
@@ -84,8 +88,12 @@ void EditorView::setDocument(QObject *doc)
     m_goalColumn = 0;
     m_scrollY = 0;
     m_lastFirstLine = -1;
-    m_highlighter.setLanguageForFile(
-        m_document ? m_document->filePath() : QString());
+    const QString path = m_document ? m_document->filePath() : QString();
+    m_highlighter.setLanguageForFile(path);
+    if (m_syntax.setLanguageForFile(path) && m_document) {
+        m_document->buffer().takeEdits(); // правки до открытия во вью не нужны
+        m_syntax.reset(m_document->buffer().snapshot());
+    }
     lock.unlock();
     clearSearch();
     emit documentChanged();
@@ -373,14 +381,17 @@ void EditorView::markEdited()
     if (!m_document)
         return;
     m_document->setDirty(true);
+    TextBuffer &buf = m_document->buffer();
+    const QVector<TextBuffer::Edit> edits = buf.takeEdits();
+    if (m_syntax.hasLanguage())
+        m_syntax.applyEdits(edits, buf.snapshot());
     m_lastFirstLine = -1; // перерисовать видимые строки
     if (!m_matches.isEmpty()) { // позиции совпадений после правки неверны
         m_matches.clear();
         m_currentMatch = -1;
         emit searchUpdated(0, 0);
     }
-    m_cursor = TextBuffer::clampPosition({m_cursor.line, m_cursor.column},
-                                         m_document->buffer());
+    m_cursor = TextBuffer::clampPosition({m_cursor.line, m_cursor.column}, buf);
     m_anchor = m_cursor;
     m_goalColumn = m_cursor.column;
     ensureCursorVisible();
@@ -654,15 +665,21 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     // Цветная строка = по одной ноде на цветной прогон + прогоны-зазоры.
     if (firstLine != m_lastFirstLine) {
         const int take = visibleLines.size();
+        // tree-sitter, пока его дерева нет (первый разбор, большой файл) — регэкспы
+        const bool treeSitter = m_syntax.isReady();
         QVector<QVector<Highlighter::Span>> lineSpans(take);
-        int totalRuns = 0;
-        if (m_highlighter.hasLanguage()) {
-            for (int i = 0; i < take; ++i) {
-                m_highlighter.highlightLine(visibleLines.at(i),
-                                            lineSpans[i]);
-                totalRuns += lineSpans.at(i).size() * 2 + 1;
-            }
+        if (treeSitter) {
+            m_syntax.highlightLines(firstLine, visibleLines, lineSpans);
+        } else if (m_highlighter.hasLanguage()) {
+            for (int i = 0; i < take; ++i)
+                m_highlighter.highlightLine(visibleLines.at(i), lineSpans[i]);
         }
+        auto spanColor = [&](int rule) {
+            return treeSitter ? SyntaxHighlighter::color(rule) : m_highlighter.ruleColor(rule);
+        };
+        int totalRuns = 0;
+        for (const auto &spans : std::as_const(lineSpans))
+            totalRuns += spans.size() * 2 + 1;
         // Пул нод ограничен: при переполнении строки рисуются одним цветом.
         const bool plain = totalRuns > kMaxTextNodes;
 
@@ -687,18 +704,17 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             QVector<Run> runs;
             const QVector<Highlighter::Span> &spans = lineSpans.at(i);
             if (plain || spans.isEmpty()) {
-                runs.append({0, text.size(), kTextColor});
+                runs.append({0, int(text.size()), kTextColor});
             } else {
                 int pos = 0;
                 for (const Highlighter::Span &s : spans) {
                     if (s.start > pos)
                         runs.append({pos, s.start, kTextColor});
-                    runs.append({s.start, s.start + s.length,
-                                 m_highlighter.ruleColor(s.rule)});
+                    runs.append({s.start, s.start + s.length, spanColor(s.rule)});
                     pos = s.start + s.length;
                 }
                 if (pos < text.size())
-                    runs.append({pos, text.size(), kTextColor});
+                    runs.append({pos, int(text.size()), kTextColor});
             }
 
             for (const Run &run : runs) {

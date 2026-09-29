@@ -83,6 +83,18 @@ QStringList PieceTable::Snapshot::lines() const
     return out;
 }
 
+const QChar *PieceTable::Snapshot::chunkAt(int offset, int *length) const
+{
+    *length = 0;
+    if (offset < 0 || offset >= m_core.length())
+        return nullptr;
+    const int i = m_core.pieceFor(offset);
+    const Piece &p = m_core.pieces.at(i);
+    const int local = offset - m_core.offsets.at(i);
+    *length = p.length - local;
+    return m_core.bufferOf(p).constData() + p.start + local;
+}
+
 void PieceTable::reset(const QString &originalText)
 {
     m_core.original = originalText;
@@ -94,7 +106,7 @@ void PieceTable::reset(const QString &originalText)
     if (originalText.isEmpty())
         return;
 
-    m_core.pieces.append(Piece{0, 0, originalText.size()});
+    m_core.pieces.append(Piece{0, 0, int(originalText.size())});
     m_core.offsets.append(originalText.size());
 
     // Смещения всех '\n': QString::indexOf заметно быстрее посимвольного
@@ -132,7 +144,7 @@ void PieceTable::insert(int offset, const QString &text)
     // Вставленный текст — новый буфер добавок; существующие куски не трогаем,
     // при необходимости разрезаем кусок, накрывший точку вставки.
     m_core.added.append(text);
-    const Piece piece{int(m_core.added.size()), 0, text.size()};
+    const Piece piece{int(m_core.added.size()), 0, int(text.size())};
 
     const int i = m_core.pieceFor(offset);
     if (i == m_core.pieces.size()) {

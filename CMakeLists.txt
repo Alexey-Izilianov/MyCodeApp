@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(MyCodeApp VERSION 0.1 LANGUAGES CXX)
+project(MyCodeApp VERSION 0.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -14,6 +14,47 @@ FetchContent_Declare(spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG v1.14.1)
 FetchContent_MakeAvailable(spdlog)
+
+# Tree-sitter (M2-2): runtime + грамматики C++/Python как статические
+# библиотеки. SOURCE_SUBDIR на несуществующую папку — MakeAvailable только
+# скачивает исходники, свои таргеты строим сами (не зависим от CMake-файлов
+# самих репозиториев). Грамматики должны быть ABI 13+ (runtime 0.27 — 13..15).
+FetchContent_Declare(tree_sitter
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter.git
+    GIT_TAG v0.27.0
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR _no_cmake)
+FetchContent_Declare(tree_sitter_cpp
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-cpp.git
+    GIT_TAG v0.23.4
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR _no_cmake)
+FetchContent_Declare(tree_sitter_python
+    GIT_REPOSITORY https://github.com/tree-sitter/tree-sitter-python.git
+    GIT_TAG v0.25.0
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR _no_cmake)
+FetchContent_MakeAvailable(tree_sitter tree_sitter_cpp tree_sitter_python)
+
+add_library(ts_runtime STATIC ${tree_sitter_SOURCE_DIR}/lib/src/lib.c)
+target_include_directories(ts_runtime PUBLIC
+    ${tree_sitter_SOURCE_DIR}/lib/include
+    ${tree_sitter_SOURCE_DIR}/lib/src)
+
+add_library(ts_cpp STATIC
+    ${tree_sitter_cpp_SOURCE_DIR}/src/parser.c
+    ${tree_sitter_cpp_SOURCE_DIR}/src/scanner.c)
+target_include_directories(ts_cpp PRIVATE ${tree_sitter_cpp_SOURCE_DIR}/src)
+
+add_library(ts_python STATIC
+    ${tree_sitter_python_SOURCE_DIR}/src/parser.c
+    ${tree_sitter_python_SOURCE_DIR}/src/scanner.c)
+target_include_directories(ts_python PRIVATE ${tree_sitter_python_SOURCE_DIR}/src)
+
+set(SYNTAX_SOURCES
+    src/services/syntaxhighlighter.h src/services/syntaxhighlighter.cpp)
+set(SYNTAX_LIBS ts_runtime ts_cpp ts_python)
+set(SYNTAX_QUERIES assets/queries/cpp.scm assets/queries/python.scm)
 
 set(CORE_SOURCES
     src/core/piecetable.h src/core/piecetable.cpp
@@ -43,16 +84,16 @@ qt_add_qml_module(appMyCodeApp
 target_sources(appMyCodeApp PRIVATE
     src/services/highlighter.h src/services/highlighter.cpp
     src/services/searchengine.h src/services/searchengine.cpp
+    ${SYNTAX_SOURCES}
 )
 
 target_link_libraries(appMyCodeApp
-    PRIVATE Qt6::Quick spdlog::spdlog
+    PRIVATE Qt6::Quick spdlog::spdlog ${SYNTAX_LIBS}
 )
 
-# JSON-правила подсветки — в ресурсы приложения
 qt_add_resources(appMyCodeApp "app_assets"
     PREFIX "/"
-    FILES assets/highlight.json
+    FILES assets/highlight.json ${SYNTAX_QUERIES}
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -97,6 +138,18 @@ qt_add_executable(test_piecetable
 target_include_directories(test_piecetable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_piecetable PRIVATE Qt6::Test)
 add_test(NAME piecetable COMMAND test_piecetable)
+
+qt_add_executable(test_treesitter tests/treesitter_test.cpp)
+target_include_directories(test_treesitter PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_treesitter PRIVATE Qt6::Test ${SYNTAX_LIBS})
+add_test(NAME treesitter COMMAND test_treesitter)
+
+qt_add_executable(test_syntaxhighlighter
+    ${CORE_SOURCES} ${SYNTAX_SOURCES} tests/syntaxhighlighter_test.cpp)
+target_include_directories(test_syntaxhighlighter PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_syntaxhighlighter PRIVATE Qt6::Gui Qt6::Test ${SYNTAX_LIBS})
+qt_add_resources(test_syntaxhighlighter "test_queries" PREFIX "/" FILES ${SYNTAX_QUERIES})
+add_test(NAME syntaxhighlighter COMMAND test_syntaxhighlighter)
 
 # Бенчмарк M2-1 (запуск вручную): bench_piecetable.exe <файл>
 qt_add_executable(bench_piecetable

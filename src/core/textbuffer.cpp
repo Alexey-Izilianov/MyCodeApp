@@ -5,6 +5,7 @@
 #include <QStringDecoder>
 #include <QStringEncoder>
 #include <QTemporaryFile>
+#include <utility>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
@@ -158,6 +159,8 @@ bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
     // Piece table хранит текст с '\n' как разделителями; строковый слой
     // вырезает строки без терминальных переводов («hi\n» — 2 строки).
     m_pt.reset(text);
+    m_edits.clear(); // новый текст: старые правки к нему не относятся
+    m_editsOverflow = false;
     return true;
 }
 
@@ -246,7 +249,20 @@ void TextBuffer::insertText(const Position &pos, const QString &text)
     normalized.replace('\r', '\n');
 
     Position p = clampPosition(pos, *this);
-    m_pt.insert(m_pt.lineStartOffset(p.line) + p.column, normalized);
+    if (normalized.isEmpty())
+        return;
+    const int offset = m_pt.lineStartOffset(p.line) + p.column;
+    m_pt.insert(offset, normalized);
+
+    Position end = p;
+    const int lastNl = normalized.lastIndexOf(u'\n');
+    if (lastNl < 0) {
+        end.column += normalized.size();
+    } else {
+        end.line += normalized.count(u'\n');
+        end.column = normalized.size() - lastNl - 1;
+    }
+    recordEdit({offset, offset, offset + int(normalized.size()), p, p, end});
 }
 
 void TextBuffer::removeText(const Position &from, const Position &to)
@@ -262,6 +278,26 @@ void TextBuffer::removeText(const Position &from, const Position &to)
     const int start = m_pt.lineStartOffset(a.line) + a.column;
     const int end = m_pt.lineStartOffset(b.line) + b.column;
     m_pt.remove(start, end - start);
+    recordEdit({start, end, start, a, b, a});
+}
+
+void TextBuffer::recordEdit(const Edit &e)
+{
+    // Если журнал никто не забирает, не копим его бесконечно
+    constexpr int kMaxEdits = 10000;
+    if (m_edits.size() >= kMaxEdits) {
+        m_edits.clear();
+        m_editsOverflow = true;
+    }
+    m_edits.append(e);
+}
+
+QVector<TextBuffer::Edit> TextBuffer::takeEdits(bool *overflow)
+{
+    if (overflow)
+        *overflow = m_editsOverflow;
+    m_editsOverflow = false;
+    return std::exchange(m_edits, {});
 }
 
 Encoding TextBuffer::detectEncoding(const QByteArray &data)

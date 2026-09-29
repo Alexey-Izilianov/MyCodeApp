@@ -68,7 +68,7 @@ void Highlighter::highlightLine(const QString &line, QVector<Span> &out) const
         while (it.hasNext()) {
             const QRegularExpressionMatch m = it.next();
             if (m.capturedLength(0) > 0)
-                all.append({m.capturedStart(0), r, m.capturedLength(0)});
+                all.append({int(m.capturedStart(0)), r, int(m.capturedLength(0))});
         }
     }
 

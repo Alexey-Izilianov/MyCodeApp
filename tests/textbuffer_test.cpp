@@ -17,6 +17,7 @@ private slots:
     void insertMultiline();
     void removeWithinLine();
     void removeAcrossLines();
+    void editJournal();
     void saveLoadRoundTrip();
     void documentDirty();
 
@@ -144,6 +145,35 @@ void TextBufferTest::removeAcrossLines()
     QCOMPARE(b.lineCount(), 3);
     QCOMPARE(b.lineAt(0), QStringLiteral("fiond"));
     QCOMPARE(b.lineAt(1), QStringLiteral("third"));
+}
+
+void TextBufferTest::editJournal()
+{
+    TextBuffer b;
+    QVERIFY(b.loadFromData("ab\ncd"));
+    QVERIFY(b.takeEdits().isEmpty());
+
+    b.insertText({0, 1}, QStringLiteral("X\nYZ"));    // aX / YZb / cd
+    b.removeText({1, 1}, {2, 1});                       // aX / Yd
+    bool overflow = true;
+    const QVector<TextBuffer::Edit> edits = b.takeEdits(&overflow);
+    QVERIFY(!overflow);
+    QCOMPARE(edits.size(), 2);
+
+    const TextBuffer::Edit &ins = edits.at(0);
+    QCOMPARE(ins.startOffset, 1);
+    QCOMPARE(ins.oldEndOffset, 1);
+    QCOMPARE(ins.newEndOffset, 5);
+    QCOMPARE(ins.newEnd, (TextBuffer::Position{1, 2}));
+
+    const TextBuffer::Edit &rem = edits.at(1);
+    QCOMPARE(rem.startOffset, 4);
+    QCOMPARE(rem.oldEndOffset, 8);
+    QCOMPARE(rem.newEndOffset, 4);
+    QCOMPARE(rem.start, (TextBuffer::Position{1, 1}));
+    QCOMPARE(rem.oldEnd, (TextBuffer::Position{2, 1}));
+    QCOMPARE(rem.newEnd, rem.start);
+    QVERIFY(b.takeEdits().isEmpty());
 }
 
 void TextBufferTest::saveLoadRoundTrip()

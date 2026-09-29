@@ -6,6 +6,7 @@
 #include <QMutex>
 #include "src/core/textbuffer.h"
 #include "src/services/highlighter.h"
+#include "src/services/syntaxhighlighter.h"
 
 class QSGTransformNode;
 class QSGClipNode;
@@ -104,8 +105,8 @@ private:
 
     QMutex m_docMutex; // доступ к document->buffer()
 
-    // подсветка синтаксиса
-    Highlighter m_highlighter;
+    Highlighter m_highlighter;  // регэкспы: JSON/MD и фоллбек
+    SyntaxHighlighter m_syntax; // tree-sitter: C++/Python
 
     // поиск
     SearchEngine *m_searchEngine = nullptr;

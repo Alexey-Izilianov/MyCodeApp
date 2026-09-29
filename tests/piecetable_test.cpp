@@ -21,6 +21,7 @@ private slots:
     void emptyDocument();
     void snapshotIsolated();
     void snapshotLines();
+    void snapshotChunks();
 
 private:
     static QString textOf(const QVector<int> &lines);
@@ -225,6 +226,29 @@ void PieceTableTest::snapshotLines()
     QCOMPARE(lines.at(0), QStringLiteral("a"));
     QCOMPARE(lines.at(1), QStringLiteral("bb"));
     QCOMPARE(lines.at(2), QStringLiteral("ccc"));
+}
+
+void PieceTableTest::snapshotChunks()
+{
+    PieceTable pt;
+    pt.reset(QStringLiteral("hello world"));
+    pt.insert(5, QStringLiteral(","));
+    const PieceTable::Snapshot snap = pt.snapshot();
+
+    QString joined;
+    int length = 0;
+    for (int offset = 0; offset < snap.length(); offset += length) {
+        const QChar *data = snap.chunkAt(offset, &length);
+        QVERIFY(data && length > 0);
+        joined += QString(data, length);
+    }
+    QCOMPARE(joined, QStringLiteral("hello, world"));
+
+    int mid = 0;
+    const QChar *midData = snap.chunkAt(2, &mid);
+    QCOMPARE(QString(midData, mid), QStringLiteral("llo"));
+    QVERIFY(!snap.chunkAt(snap.length(), &length));
+    QCOMPARE(length, 0);
 }
 
 QTEST_GUILESS_MAIN(PieceTableTest)

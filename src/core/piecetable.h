@@ -57,6 +57,10 @@ public:
         QString textAt(int offset, int count) const { return m_core.textAt(offset, count); }
         QString toString() const { return m_core.toString(); }
         QStringList lines() const;
+        // Непрерывный фрагмент текста с offset до конца куска — без копирования
+        // (читатель tree-sitter). Указатель живёт, пока жив снимок; в конце
+        // текста *length == 0.
+        const QChar *chunkAt(int offset, int *length) const;
 
     private:
         friend class PieceTable;
