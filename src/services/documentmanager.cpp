@@ -3,11 +3,77 @@
 #include <QFileInfo>
 #include <spdlog/spdlog.h>
 
+#include "src/services/recovery.h"
+
 using core::Document;
 
 DocumentManager::DocumentManager(QObject *parent)
     : QObject(parent)
+    , m_recovery(new RecoveryManager(RecoveryManager::defaultDirectory(), this))
 {
+    m_diskCheck.setInterval(2000);
+    connect(&m_diskCheck, &QTimer::timeout, this, &DocumentManager::checkDisk);
+    m_diskCheck.start();
+    connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, [this] {
+        QTimer::singleShot(200, this, &DocumentManager::checkDisk); // дать записи закончиться
+    });
+}
+
+void DocumentManager::checkDisk()
+{
+    for (int i = 0; i < m_docs.size(); ++i) {
+        Document *doc = m_docs.at(i);
+        if (!m_watcher.files().contains(doc->filePath()))
+            m_watcher.addPath(doc->filePath());
+        if (m_conflicts.contains(doc) || !doc->changedOnDisk())
+            continue;
+        if (doc->isDirty()) {
+            m_conflicts.insert(doc);
+            emit externalChange(i, doc->displayName());
+        } else if (!doc->reload()) {
+            doc->acceptDiskVersion(); // файл недоступен на чтение — не спрашиваем каждые 2 с
+        }
+    }
+}
+
+void DocumentManager::reloadFromDisk(int index)
+{
+    if (index < 0 || index >= m_docs.size())
+        return;
+    m_conflicts.remove(m_docs.at(index));
+    if (!m_docs.at(index)->reload())
+        emit errorOccurred(QStringLiteral("не удалось перечитать файл"));
+}
+
+void DocumentManager::keepLocal(int index)
+{
+    if (index < 0 || index >= m_docs.size())
+        return;
+    m_conflicts.remove(m_docs.at(index));
+    m_docs.at(index)->acceptDiskVersion();
+}
+
+int DocumentManager::restoreUnsaved()
+{
+    int restored = 0;
+    for (const QString &path : m_recovery->unsavedFiles()) {
+        open(QUrl::fromLocalFile(path));
+        ++restored;
+    }
+    if (restored > 0)
+        spdlog::info("dm: восстановлено файлов с несохранёнными правками: {}", restored);
+    return restored;
+}
+
+void DocumentManager::publish(Document *doc)
+{
+    connect(doc, &Document::dirtyChanged, this, &DocumentManager::tabsChanged);
+    m_recovery->watch(doc);
+    m_recovery->restore(doc);
+    m_docs.append(doc);
+    m_current = int(m_docs.size()) - 1;
+    emit tabsChanged();
+    emit currentIndexChanged();
 }
 
 void DocumentManager::setCurrentIndex(int index)
@@ -77,11 +143,7 @@ int DocumentManager::open(const QUrl &url)
         emit errorOccurred(QStringLiteral("не удалось открыть файл"));
         return -1;
     }
-    connect(doc, &Document::dirtyChanged, this, &DocumentManager::tabsChanged);
-    m_docs.append(doc);
-    m_current = m_docs.size() - 1;
-    emit tabsChanged();
-    emit currentIndexChanged();
+    publish(doc);
     return m_current;
 }
 
@@ -89,14 +151,9 @@ void DocumentManager::finishAsyncLoad(core::Document *doc, bool ok)
 {
     m_loadingDocs.removeOne(doc);
     if (ok) {
-        spdlog::info("dm: async load {} мс, {} байт",
+        spdlog::info("dm: фоновая загрузка {} мс: {}",
                      m_loadTimer.elapsed(), doc->filePath().toStdString());
-        connect(doc, &Document::dirtyChanged, this,
-                &DocumentManager::tabsChanged);
-        m_docs.append(doc);
-        m_current = m_docs.size() - 1;
-        emit tabsChanged();
-        emit currentIndexChanged();
+        publish(doc);
     } else {
         doc->deleteLater();
         emit errorOccurred(QStringLiteral("не удалось открыть файл"));
@@ -110,10 +167,12 @@ void DocumentManager::close(int index)
     if (index < 0 || index >= m_docs.size())
         return;
     core::Document *doc = m_docs.takeAt(index);
+    m_recovery->discard(doc); // закрыт осознанно — несохранённое не восстанавливаем
+    m_conflicts.remove(doc);
+    m_watcher.removePath(doc->filePath());
     if (m_current >= m_docs.size())
         m_current = m_docs.size() - 1;
-    // Сначала уведомляем: редактор отцепит документ (у него свой мьютекс,
-    // защищающий буфер от рендер-потока), и только потом удаляем.
+    // Сначала уведомляем (редактор отцепит документ), потом удаляем
     emit tabsChanged();
     emit currentIndexChanged();
     doc->deleteLater();
@@ -125,6 +184,11 @@ void DocumentManager::activate(int index)
         return;
     m_current = index;
     emit currentIndexChanged();
+}
+
+QObject *DocumentManager::documentAt(int index) const
+{
+    return index >= 0 && index < m_docs.size() ? m_docs.at(index) : nullptr;
 }
 
 bool DocumentManager::isDirty(int index) const

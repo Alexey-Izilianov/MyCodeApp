@@ -5,7 +5,7 @@ import MyCodeApp
 // Экран без открытых файлов: подсказки действий с клавишами
 Rectangle {
     id: empty
-    signal openRequested()
+    signal actionRequested(string action)
     color: Theme.editor
 
     Column {
@@ -14,32 +14,35 @@ Rectangle {
 
         Repeater {
             model: [
-                { text: qsTr("Открыть файл"), keys: "Ctrl+O", action: true },
-                { text: qsTr("Найти в файле"), keys: "Ctrl+F", action: false },
-                { text: qsTr("Перетащите файл в окно"), keys: "", action: false }
+                { text: qsTr("Открыть файл"), keys: "Ctrl+O", action: "file" },
+                { text: qsTr("Открыть папку"), keys: "Ctrl+K Ctrl+O", action: "folder" },
+                { text: qsTr("Перейти к файлу"), keys: "Ctrl+P", action: "quickOpen" },
+                { text: qsTr("Найти в проекте"), keys: "Ctrl+Shift+F", action: "search" },
+                { text: qsTr("Перетащите файл или папку в окно"), keys: "", action: "" }
             ]
             Row {
+                id: hint
                 required property var modelData
                 spacing: 24
 
                 Label {
-                    width: 200
+                    width: 240
                     horizontalAlignment: Text.AlignRight
-                    text: parent.modelData.text
-                    color: parent.modelData.action && link.containsMouse ? Theme.text : Theme.muted
-                    font.underline: parent.modelData.action && link.containsMouse
+                    text: hint.modelData.text
+                    color: hint.modelData.action !== "" && link.containsMouse ? Theme.text : Theme.muted
+                    font.underline: hint.modelData.action !== "" && link.containsMouse
                     MouseArea {
                         id: link
                         anchors.fill: parent
-                        enabled: parent.parent.modelData.action
+                        enabled: hint.modelData.action !== ""
                         hoverEnabled: true
                         cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: empty.openRequested()
+                        onClicked: empty.actionRequested(hint.modelData.action)
                     }
                 }
                 Label {
                     width: 120
-                    text: parent.modelData.keys
+                    text: hint.modelData.keys
                     color: Theme.faint
                 }
             }

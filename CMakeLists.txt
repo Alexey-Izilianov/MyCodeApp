@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(MyCodeApp VERSION 0.1 LANGUAGES C CXX)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # для clangd
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -34,7 +35,12 @@ FetchContent_Declare(tree_sitter_python
     GIT_TAG v0.25.0
     GIT_SHALLOW TRUE
     SOURCE_SUBDIR _no_cmake)
-FetchContent_MakeAvailable(tree_sitter tree_sitter_cpp tree_sitter_python)
+FetchContent_Declare(tree_sitter_qmljs
+    GIT_REPOSITORY https://github.com/yuja/tree-sitter-qmljs.git
+    GIT_TAG 0.3.1
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR _no_cmake)
+FetchContent_MakeAvailable(tree_sitter tree_sitter_cpp tree_sitter_python tree_sitter_qmljs)
 
 add_library(ts_runtime STATIC ${tree_sitter_SOURCE_DIR}/lib/src/lib.c)
 target_include_directories(ts_runtime PUBLIC
@@ -51,15 +57,23 @@ add_library(ts_python STATIC
     ${tree_sitter_python_SOURCE_DIR}/src/scanner.c)
 target_include_directories(ts_python PRIVATE ${tree_sitter_python_SOURCE_DIR}/src)
 
+add_library(ts_qmljs STATIC
+    ${tree_sitter_qmljs_SOURCE_DIR}/src/parser.c
+    ${tree_sitter_qmljs_SOURCE_DIR}/src/scanner.c)
+target_include_directories(ts_qmljs PRIVATE ${tree_sitter_qmljs_SOURCE_DIR}/src)
+
 set(SYNTAX_SOURCES
     src/services/syntaxhighlighter.h src/services/syntaxhighlighter.cpp)
-set(SYNTAX_LIBS ts_runtime ts_cpp ts_python)
-set(SYNTAX_QUERIES assets/queries/cpp.scm assets/queries/python.scm)
+set(SYNTAX_LIBS ts_runtime ts_cpp ts_python ts_qmljs)
+set(SYNTAX_QUERIES assets/queries/cpp.scm assets/queries/python.scm assets/queries/qml.scm)
 
 set(CORE_SOURCES
     src/core/piecetable.h src/core/piecetable.cpp
     src/core/textbuffer.h src/core/textbuffer.cpp
     src/core/document.h src/core/document.cpp
+    src/core/editing.h src/core/editing.cpp
+    src/core/folding.h src/core/folding.cpp
+    src/core/mappedtext.h src/core/mappedtext.cpp
 )
 
 # Content of downloaded design from Figma to Qt or similar
@@ -80,7 +94,15 @@ qt_add_qml_module(appMyCodeApp
         qml/Theme.qml qml/AppMenu.qml qml/AppMenuSeparator.qml qml/CrossIcon.qml
         qml/IconButton.qml qml/FlatButton.qml qml/TabStrip.qml qml/FindBar.qml
         qml/StatusBar.qml qml/EmptyState.qml qml/LoadOverlay.qml qml/CloseDialog.qml
+        qml/FileIcon.qml qml/SearchField.qml qml/FileTree.qml qml/SearchPanel.qml
+        qml/Sidebar.qml qml/QuickOpen.qml qml/ReloadDialog.qml
+        qml/CompletionPopup.qml qml/HoverPopup.qml qml/BottomPanel.qml qml/RenamePopup.qml
         SOURCES src/gui/editerview.h src/gui/editerview.cpp
+                src/gui/minimap.h src/gui/minimap.cpp
+                src/services/workspace.h src/services/workspace.cpp
+                src/services/projectmodel.h src/services/projectmodel.cpp
+                src/services/projectsearch.h src/services/projectsearch.cpp
+                src/lsp/lspmanager.h src/lsp/lspmanager.cpp
                src/services/documentmanager.h src/services/documentmanager.cpp
 )
 
@@ -88,6 +110,9 @@ qt_add_qml_module(appMyCodeApp
 target_sources(appMyCodeApp PRIVATE
     src/services/highlighter.h src/services/highlighter.cpp
     src/services/searchengine.h src/services/searchengine.cpp
+    src/services/recovery.h src/services/recovery.cpp
+    src/services/ignorerules.h src/services/ignorerules.cpp
+    src/lsp/lspclient.h src/lsp/lspclient.cpp
     ${SYNTAX_SOURCES}
 )
 
@@ -97,7 +122,7 @@ target_link_libraries(appMyCodeApp
 
 qt_add_resources(appMyCodeApp "app_assets"
     PREFIX "/"
-    FILES assets/highlight.json ${SYNTAX_QUERIES}
+    FILES assets/highlight.json assets/lsp.json ${SYNTAX_QUERIES}
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -113,7 +138,8 @@ set_target_properties(appMyCodeApp PROPERTIES
 
 target_include_directories(appMyCodeApp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/core ${CMAKE_CURRENT_SOURCE_DIR}/src/services)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core ${CMAKE_CURRENT_SOURCE_DIR}/src/services
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/lsp)
 
 enable_testing()
 qt_add_executable(test_core ${CORE_SOURCES} tests/textbuffer_test.cpp)
@@ -129,7 +155,7 @@ target_link_libraries(test_highlighter PRIVATE Qt6::Gui Qt6::Test)
 add_test(NAME highlighter COMMAND test_highlighter)
 
 qt_add_executable(test_searchengine
-    src/core/piecetable.h src/core/piecetable.cpp
+    src/core/piecetable.h src/core/piecetable.cpp src/core/mappedtext.h src/core/mappedtext.cpp
     src/services/searchengine.h src/services/searchengine.cpp
     tests/searchengine_test.cpp)
 target_include_directories(test_searchengine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -137,7 +163,7 @@ target_link_libraries(test_searchengine PRIVATE Qt6::Test)
 add_test(NAME searchengine COMMAND test_searchengine)
 
 qt_add_executable(test_piecetable
-    src/core/piecetable.h src/core/piecetable.cpp
+    src/core/piecetable.h src/core/piecetable.cpp src/core/mappedtext.h src/core/mappedtext.cpp
     tests/piecetable_test.cpp)
 target_include_directories(test_piecetable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_piecetable PRIVATE Qt6::Test)
@@ -167,9 +193,33 @@ qt_add_resources(test_editorview "test_editor_assets" PREFIX "/"
     FILES assets/highlight.json ${SYNTAX_QUERIES})
 add_test(NAME editorview COMMAND test_editorview)
 
+qt_add_executable(test_editing ${CORE_SOURCES} tests/editing_test.cpp)
+target_include_directories(test_editing PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_editing PRIVATE Qt6::Test)
+add_test(NAME editing COMMAND test_editing)
+
+qt_add_executable(test_folding ${CORE_SOURCES} tests/folding_test.cpp)
+target_include_directories(test_folding PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_folding PRIVATE Qt6::Test)
+add_test(NAME folding COMMAND test_folding)
+
+qt_add_executable(test_project
+    src/services/ignorerules.h src/services/ignorerules.cpp
+    src/services/workspace.h src/services/workspace.cpp
+    tests/project_test.cpp)
+target_include_directories(test_project PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_project PRIVATE Qt6::Test Qt6::Qml)
+add_test(NAME project COMMAND test_project)
+
+qt_add_executable(test_recovery ${CORE_SOURCES}
+    src/services/recovery.h src/services/recovery.cpp tests/recovery_test.cpp)
+target_include_directories(test_recovery PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_recovery PRIVATE Qt6::Test)
+add_test(NAME recovery COMMAND test_recovery)
+
 # Бенчмарк M2-1 (запуск вручную): bench_piecetable.exe <файл>
 qt_add_executable(bench_piecetable
-    src/core/piecetable.h src/core/piecetable.cpp
+    src/core/piecetable.h src/core/piecetable.cpp src/core/mappedtext.h src/core/mappedtext.cpp
     tests/bench_piecetable.cpp)
 target_include_directories(bench_piecetable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(bench_piecetable PRIVATE Qt6::Core)

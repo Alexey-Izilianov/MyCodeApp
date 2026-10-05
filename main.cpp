@@ -64,6 +64,7 @@ int main(int argc, char *argv[])
     // Смоук-режим самотеста: MYCODEAPP_SHOT=<путь.png> — открыть окно,
     // снять скриншот и выйти. Используется для автоматической проверки.
     // MYCODEAPP_AUTOCLOSE=1 — закрыть таб за 1 с до скриншота (тест очистки).
+    // MYCODEAPP_SHOT_DELAY=<мс> — снимать позже (долгая загрузка), по умолчанию 2000.
     const QByteArray shotPath = qgetenv("MYCODEAPP_SHOT");
     if (qgetenv("MYCODEAPP_AUTOCLOSE") == "1" && !roots.isEmpty()) {
         if (auto *manager = roots.first()->findChild<QObject *>(QStringLiteral("manager"))) {
@@ -77,7 +78,8 @@ int main(int argc, char *argv[])
     }
     if (!shotPath.isEmpty() && !roots.isEmpty()) {
         if (auto *win = qobject_cast<QQuickWindow *>(roots.first())) {
-            QTimer::singleShot(2000, win, [win, shotPath]() {
+            const int delay = qEnvironmentVariableIntValue("MYCODEAPP_SHOT_DELAY");
+            QTimer::singleShot(delay > 0 ? delay : 2000, win, [win, shotPath]() {
                 const QImage image = win->grabWindow();
                 if (image.save(QString::fromLocal8Bit(shotPath)))
                     spdlog::info("main: скриншот сохранён: {}",

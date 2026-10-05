@@ -13,48 +13,43 @@ void SearchEngine::start(const core::PieceTable::Snapshot &snapshot,
                          const QString &needle, bool caseSensitive)
 {
     const int id = ++m_runId;
-    const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive
-                                                 : Qt::CaseInsensitive;
-    QThreadPool::globalInstance()->start([this, id, snapshot, needle, cs]() {
-        // Материализация всех строк дорогая и делается здесь, в фоне:
-        // на GUI-потоке снимок стоил O(1).
-        searchLines(snapshot.lines(), id, needle, cs);
+    const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    QThreadPool::globalInstance()->start([this, id, snapshot, needle, cs] {
+        search([&](const LineVisitor &visit) { snapshot.forEachLine(visit); }, id, needle, cs);
     });
 }
 
-void SearchEngine::start(const QStringList &lines, const QString &needle,
-                         bool caseSensitive)
+void SearchEngine::start(const QStringList &lines, const QString &needle, bool caseSensitive)
 {
     const int id = ++m_runId;
-    const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive
-                                                 : Qt::CaseInsensitive;
-    QThreadPool::globalInstance()->start([this, id, lines, needle, cs]() {
-        searchLines(lines, id, needle, cs);
+    const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    QThreadPool::globalInstance()->start([this, id, lines, needle, cs] {
+        search([&](const LineVisitor &visit) {
+            for (int i = 0; i < lines.size() && visit(i, lines.at(i)); ++i) {}
+        }, id, needle, cs);
     });
 }
 
-void SearchEngine::searchLines(const QStringList &lines, int id,
-                               const QString &needle, Qt::CaseSensitivity cs)
+void SearchEngine::search(const std::function<void(const LineVisitor &)> &forEachLine, int id,
+                          const QString &needle, Qt::CaseSensitivity cs)
 {
-    // Выполняется в текущем (фоновом) потоке — задача в пул ставят перегрузки start
+    constexpr int kMaxMatches = 1'000'000; // предохранитель памяти
     QVector<Match> matches;
-    matches.reserve(256);
-    const int n = needle.size();
-    for (int i = 0; i < lines.size(); ++i) {
-        if ((i & 255) == 0 && m_runId.load(std::memory_order_acquire) != id)
-            return; // запущен новый поиск — этот прогон не нужен
-        int from = 0;
-        while (true) {
-            const int idx = lines.at(i).indexOf(needle, from, cs);
+    bool cancelled = false;
+    forEachLine([&](int line, const QString &text) {
+        if ((line & 255) == 0 && m_runId.load(std::memory_order_acquire) != id) {
+            cancelled = true; // запущен новый поиск
+            return false;
+        }
+        for (int from = 0;;) {
+            const int idx = int(text.indexOf(needle, from, cs));
             if (idx < 0)
                 break;
-            matches.append({i, idx, n});
-            from = idx + n;
-            if (matches.size() >= 1'000'000) // предохранитель памяти
-                break;
+            matches.append({line, idx, int(needle.size())});
+            from = idx + int(needle.size());
         }
-    }
-    if (m_runId.load(std::memory_order_acquire) != id)
-        return;
-    emit resultsReady(matches); // auto->queued: придёт в GUI-поток
+        return matches.size() < kMaxMatches;
+    });
+    if (!cancelled && m_runId.load(std::memory_order_acquire) == id)
+        emit resultsReady(matches); // queued: придёт в GUI-поток
 }

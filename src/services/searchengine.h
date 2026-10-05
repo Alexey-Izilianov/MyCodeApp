@@ -5,6 +5,7 @@
 #include <QString>
 #include <QStringList>
 #include <atomic>
+#include <functional>
 
 #include "src/core/piecetable.h"
 
@@ -23,8 +24,8 @@ public:
 
     explicit SearchEngine(QObject *parent = nullptr);
 
-    // Снимок piece table: на GUI-потоке копирование O(1), материализация
-    // строк происходит в фоновом потоке.
+    // Снимок piece table: на GUI-потоке копирование O(1), строки
+    // читаются по одной в фоновом потоке.
     void start(const core::PieceTable::Snapshot &snapshot, const QString &needle,
                bool caseSensitive);
     // Готовый список строк (для тестов и маленьких документов)
@@ -36,8 +37,9 @@ signals:
     void resultsReady(const QVector<SearchEngine::Match> &matches);
 
 private:
-    void searchLines(const QStringList &lines, int id, const QString &needle,
-                     Qt::CaseSensitivity cs);
+    using LineVisitor = std::function<bool(int, const QString &)>;
+    void search(const std::function<void(const LineVisitor &)> &forEachLine, int id,
+                const QString &needle, Qt::CaseSensitivity cs);
 
     std::atomic<int> m_runId{0};
 };

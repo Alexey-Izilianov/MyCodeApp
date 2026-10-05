@@ -164,8 +164,39 @@ bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
     return true;
 }
 
+bool TextBuffer::loadMapped(const QString &path, const std::function<void(int)> &progress)
+{
+    // Кодировка — по началу файла, обрезанному до конца строки, чтобы не
+    // разрезать многобайтовый символ UTF-8
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return false;
+    QByteArray head = file.read(1 << 16);
+    if (const int nl = int(head.lastIndexOf('\n')); nl > 0)
+        head.truncate(nl + 1);
+    const Encoding encoding = detectEncoding(head);
+    if (encoding != Encoding::Utf8 && encoding != Encoding::Latin1)
+        return false;
+
+    auto mapped = MappedText::open(path, encoding == Encoding::Utf8, progress);
+    if (!mapped)
+        return false;
+    m_encoding = encoding;
+    m_lineEnding = mapped->crlf() ? LineEnding::Crlf : LineEnding::Lf;
+    m_pt.reset(std::move(mapped));
+    m_edits.clear();
+    m_editsOverflow = false;
+    return true;
+}
+
 bool TextBuffer::save(const QString &path, QString *error)
 {
+    if (isMapped()) {
+        if (error)
+            *error = QStringLiteral("Файл открыт только для чтения");
+        return false;
+    }
+
     // Разделители в piece table всегда '\n'
     QString text = m_pt.toString();
     if (m_lineEnding != LineEnding::Lf)

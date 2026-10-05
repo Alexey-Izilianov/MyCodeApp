@@ -8,6 +8,7 @@
 
 extern "C" const TSLanguage *tree_sitter_cpp();
 extern "C" const TSLanguage *tree_sitter_python();
+extern "C" const TSLanguage *tree_sitter_qmljs();
 
 using core::PieceTable;
 using core::TextBuffer;
@@ -24,6 +25,7 @@ constexpr Style kStyles[] = {
     {"keyword", 0xcf8e6d},  {"type", 0x4fc1b5},    {"function", 0x56a8f5},
     {"string", 0x6aab73},   {"escape", 0xd5b778},  {"number", 0xb5a1e6},
     {"constant", 0xcf8e6d}, {"comment", 0x7a7e85}, {"preprocessor", 0xe06c75},
+    {"property", 0xc77dbb},
 };
 
 constexpr int kMaxLineChars = 10000; // дальше строка без подсветки
@@ -93,10 +95,12 @@ const SyntaxHighlighter::Language *SyntaxHighlighter::languageFor(const QString 
     // Запросы живут до конца процесса — как и сами грамматики
     static const Language cpp = make(tree_sitter_cpp(), QStringLiteral(":/assets/queries/cpp.scm"));
     static const Language python = make(tree_sitter_python(), QStringLiteral(":/assets/queries/python.scm"));
+    static const Language qml = make(tree_sitter_qmljs(), QStringLiteral(":/assets/queries/qml.scm"));
     static const QHash<QString, const Language *> bySuffix = {
         {"c", &cpp},  {"cc", &cpp},  {"cpp", &cpp}, {"cxx", &cpp}, {"h", &cpp},
         {"hh", &cpp}, {"hpp", &cpp}, {"hxx", &cpp}, {"inl", &cpp},
         {"py", &python}, {"pyw", &python}, {"pyi", &python},
+        {"qml", &qml},
     };
     const Language *lang = bySuffix.value(suffix);
     return lang && lang->query ? lang : nullptr;

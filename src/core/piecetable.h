@@ -3,6 +3,10 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <functional>
+#include <memory>
+
+#include "mappedtext.h"
 
 namespace core {
 
@@ -24,6 +28,7 @@ private:
     // Общее состояние таблицы и снимков: чтение через него же.
     struct Core {
         QString original;       // текст файла, после reset не меняется
+        std::shared_ptr<const MappedText> mapped; // вместо original у гигантских файлов
         QVector<QString> added; // буферы добавок (по одному на вставку)
         QVector<Piece> pieces;
         QVector<int> offsets;   // offsets[i] — абсолютное начало куска i; последний — длина текста
@@ -34,6 +39,7 @@ private:
         { return p.bufferIndex == 0 ? original : added.at(p.bufferIndex - 1); }
 
         int pieceFor(int offset) const;
+        void copy(const Piece &p, int local, int count, QChar *dst) const;
         QString textAt(int offset, int count) const;
         QString toString() const;
         int lineCount() const { return newlines.size() + 1; }
@@ -57,9 +63,11 @@ public:
         QString textAt(int offset, int count) const { return m_core.textAt(offset, count); }
         QString toString() const { return m_core.toString(); }
         QStringList lines() const;
+        // Все строки по порядку; у отображённого файла — без поиска начала каждой
+        void forEachLine(const std::function<bool(int, const QString &)> &fn) const;
         // Непрерывный фрагмент текста с offset до конца куска — без копирования
         // (читатель tree-sitter). Указатель живёт, пока жив снимок; в конце
-        // текста *length == 0.
+        // текста и у отображённого файла *length == 0.
         const QChar *chunkAt(int offset, int *length) const;
 
     private:
@@ -70,6 +78,8 @@ public:
 
     // Сброс: оригинал = расшифрованный текст файла (с '\n' как разделителями).
     void reset(const QString &originalText);
+    void reset(std::shared_ptr<const MappedText> mapped);
+    bool isMapped() const { return m_core.mapped != nullptr; }
 
     int length() const { return m_core.length(); }
     int pieceCount() const { return m_core.pieces.size(); }

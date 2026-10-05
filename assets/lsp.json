@@ -1,0 +1,27 @@
+{
+    "servers": {
+        "clangd": {
+            "extensions": ["c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "inl"],
+            "command": ["clangd", "--background-index", "--header-insertion=never", "--clang-tidy=false",
+                        "--query-driver=**/*g++*.exe,**/*gcc*.exe,**/c++.exe,**/cc.exe"],
+            "candidates": ["${QT_ROOT}/Tools/QtCreator/bin/clang/bin/clangd.exe",
+                           "C:/Qt/Tools/QtCreator/bin/clang/bin/clangd.exe",
+                           "C:/Program Files/LLVM/bin/clangd.exe"],
+            "compileCommands": true
+        },
+        "pyright": {
+            "extensions": ["py", "pyi", "pyw"],
+            "command": ["pyright-langserver", "--stdio"],
+            "settings": { "python": { "analysis": { "autoSearchPaths": true, "useLibraryCodeForTypes": true } } }
+        },
+        "rust-analyzer": {
+            "extensions": ["rs"],
+            "command": ["rust-analyzer"]
+        },
+        "qmlls": {
+            "extensions": ["qml"],
+            "command": ["qmlls"],
+            "candidates": ["${QT_BIN}/qmlls.exe", "C:/Qt/*/mingw_64/bin/qmlls.exe", "C:/Qt/*/msvc*_64/bin/qmlls.exe"]
+        }
+    }
+}

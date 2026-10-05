@@ -1,0 +1,20 @@
+Файл для нескольких курсоров.
+
+Ctrl+D на слове value — выделяются следующие вхождения:
+value = 1
+other = value + value
+result = compute(value)
+
+Выделение столбцом (Alt+Shift+стрелки или Alt+протяжка):
+name1    = "alpha"
+name2    = "beta"
+name3    = "gamma"
+name4    = "delta"
+short
+name6    = "zeta"
+
+Вставка строк на несколько курсоров: скопируйте три строки ниже
+и вставьте на три курсора (Ctrl+Alt+↓):
+first
+second
+third

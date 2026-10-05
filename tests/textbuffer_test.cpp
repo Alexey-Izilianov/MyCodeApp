@@ -20,6 +20,7 @@ private slots:
     void editJournal();
     void saveLoadRoundTrip();
     void documentDirty();
+    void mappedMatchesLoaded();
 
 private:
     static QString writeTemp(const QByteArray &bytes, const QString &suffix);
@@ -29,9 +30,9 @@ QString TextBufferTest::writeTemp(const QByteArray &bytes, const QString &suffix
 {
     const QString path = QDir::tempPath() + "/mca_test_" + suffix;
     QFile f(path);
-    f.open(QIODevice::WriteOnly);
+    if (!f.open(QIODevice::WriteOnly))
+        return {};
     f.write(bytes);
-    f.close();
     return path;
 }
 
@@ -206,6 +207,36 @@ void TextBufferTest::documentDirty()
     QString docSaveError;
     QVERIFY2(doc.save(&docSaveError), qPrintable(docSaveError));
     QCOMPARE(doc.isDirty(), false);
+}
+
+void TextBufferTest::mappedMatchesLoaded()
+{
+    // Больше kCheckpoint строк, CRLF, кириллица, суррогатная пара, BOM
+    QByteArray bytes = "\xEF\xBB\xBF";
+    for (int i = 0; i < 40; ++i)
+        bytes += "line " + QByteArray::number(i) + (i % 3 ? " \xD0\xBF\xD1\x80\xD0\xB8 \xF0\x9F\x98\x80" : "") + "\r\n";
+    bytes += "tail";
+    const QString path = writeTemp(bytes, "mapped.txt");
+
+    TextBuffer loaded, mapped;
+    QVERIFY(loaded.load(path));
+    QVERIFY(mapped.loadMapped(path));
+    QVERIFY(mapped.isMapped());
+    QCOMPARE(mapped.lineEnding(), LineEnding::Crlf);
+    QCOMPARE(mapped.length(), loaded.length());
+    QCOMPARE(mapped.lineCount(), loaded.lineCount());
+    for (int i = 0; i < loaded.lineCount(); ++i)
+        QCOMPARE(mapped.lineAt(i), loaded.lineAt(i));
+    QCOMPARE(mapped.textAt(100, 300), loaded.textAt(100, 300)); // через несколько строк
+    QCOMPARE(mapped.snapshot().toString(), loaded.snapshot().toString());
+
+    int visited = 0;
+    mapped.snapshot().forEachLine([&](int line, const QString &text) {
+        visited += text == loaded.lineAt(line);
+        return true;
+    });
+    QCOMPARE(visited, loaded.lineCount());
+    QVERIFY(!mapped.save(path));
 }
 
 QTEST_GUILESS_MAIN(TextBufferTest)

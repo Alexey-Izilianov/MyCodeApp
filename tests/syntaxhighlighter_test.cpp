@@ -16,6 +16,7 @@ private slots:
     void preprocessorLines();
     void multilineComment();
     void pythonColors();
+    void qmlColors();
     void incrementalEdit();
     void editsDuringParse();
     void documentSwitchDropsStaleParse();
@@ -72,6 +73,8 @@ const QByteArray kEscape("escape");
 const QByteArray kNumber("number");
 const QByteArray kComment("comment");
 const QByteArray kPreprocessor("preprocessor");
+const QByteArray kProperty("property");
+const QByteArray kConstant("constant");
 } // namespace
 
 void SyntaxHighlighterTest::languages()
@@ -81,6 +84,7 @@ void SyntaxHighlighterTest::languages()
     QVERIFY(hl.setLanguageForFile(QStringLiteral("a.cpp")));
     QVERIFY(hl.setLanguageForFile(QStringLiteral("B.H")));
     QVERIFY(hl.setLanguageForFile(QStringLiteral("x.py")));
+    QVERIFY(hl.setLanguageForFile(QStringLiteral("Main.qml")));
     QVERIFY(!hl.setLanguageForFile(QStringLiteral("x.json")));
     QVERIFY(!hl.setLanguageForFile(QString()));
 }
@@ -179,6 +183,43 @@ void SyntaxHighlighterTest::pythonColors()
     QCOMPARE(styleAt(spans, 3, 4), kKeyword);
     QCOMPARE(styleAt(spans, 3, 15), kNumber);
     QCOMPARE(styleAt(spans, 3, 18), kComment);
+}
+
+void SyntaxHighlighterTest::qmlColors()
+{
+    SyntaxHighlighter hl;
+    TextBuffer buf;
+    hl.setLanguageForFile(QStringLiteral("Main.qml"));
+    QVERIFY(parse(hl, buf,
+                  "import QtQuick\n"
+                  "Rectangle {\n"
+                  "    id: root\n"
+                  "    width: 100 // side\n"
+                  "    property string title: \"hi\"\n"
+                  "    signal clicked()\n"
+                  "    function f() { return Math.max(1, 2) }\n"
+                  "    visible: true\n"
+                  "}\n"));
+    const Spans spans = highlightAll(hl, buf);
+
+    QCOMPARE(styleAt(spans, 0, 0), kKeyword);   // import
+    QCOMPARE(styleAt(spans, 0, 7), kType);      // QtQuick
+    QCOMPARE(styleAt(spans, 1, 0), kType);      // Rectangle
+    QCOMPARE(styleAt(spans, 2, 4), kProperty);  // id
+    QCOMPARE(styleAt(spans, 3, 4), kProperty);  // width
+    QCOMPARE(styleAt(spans, 3, 11), kNumber);
+    QCOMPARE(styleAt(spans, 3, 15), kComment);
+    QCOMPARE(styleAt(spans, 4, 4), kKeyword);   // property
+    QCOMPARE(styleAt(spans, 4, 13), kType);     // string
+    QCOMPARE(styleAt(spans, 4, 20), kProperty); // title
+    QCOMPARE(styleAt(spans, 4, 27), kString);
+    QCOMPARE(styleAt(spans, 5, 4), kKeyword);   // signal
+    QCOMPARE(styleAt(spans, 5, 11), kFunction); // clicked
+    QCOMPARE(styleAt(spans, 6, 4), kKeyword);   // function
+    QCOMPARE(styleAt(spans, 6, 13), kFunction); // f
+    QCOMPARE(styleAt(spans, 6, 19), kKeyword);  // return
+    QCOMPARE(styleAt(spans, 6, 31), kFunction); // Math.max
+    QCOMPARE(styleAt(spans, 7, 13), kConstant); // true
 }
 
 void SyntaxHighlighterTest::incrementalEdit()

@@ -83,3 +83,7 @@ CMakeLists.txt.user*
 /build*/
 /.qtcreator/
 PLAN.md
+
+# Сгенерированные тестовые файлы (python samples/generate.py)
+/samples/medium/
+/samples/large/

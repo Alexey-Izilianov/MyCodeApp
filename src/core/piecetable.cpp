@@ -1,6 +1,7 @@
 #include "piecetable.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace core {
 
@@ -10,6 +11,16 @@ int PieceTable::Core::pieceFor(int offset) const
     // offset == length() даёт pieces.size() — метку «за концом» для вставки.
     const auto it = std::upper_bound(offsets.cbegin() + 1, offsets.cend(), offset);
     return int(it - offsets.cbegin()) - 1;
+}
+
+void PieceTable::Core::copy(const Piece &p, int local, int count, QChar *dst) const
+{
+    if (p.bufferIndex == 0 && mapped) {
+        const QString text = mapped->text(p.start + local, count);
+        std::memcpy(dst, text.constData(), size_t(qMin(count, int(text.size()))) * sizeof(QChar));
+    } else {
+        std::memcpy(dst, bufferOf(p).constData() + p.start + local, size_t(count) * sizeof(QChar));
+    }
 }
 
 QString PieceTable::Core::textAt(int offset, int count) const
@@ -27,9 +38,7 @@ QString PieceTable::Core::textAt(int offset, int count) const
         const Piece &p = pieces.at(i);
         const int local = qMax(0, offset + written - offsets.at(i));
         const int take = qMin(p.length - local, count - written);
-        std::memcpy(dst + written,
-                    bufferOf(p).constData() + p.start + local,
-                    size_t(take) * sizeof(QChar));
+        copy(p, local, take, dst + written);
         written += take;
     }
     return out;
@@ -43,9 +52,7 @@ QString PieceTable::Core::toString() const
     QChar *dst = out.data();
     int written = 0;
     for (const Piece &p : pieces) {
-        std::memcpy(dst + written,
-                    bufferOf(p).constData() + p.start,
-                    size_t(p.length) * sizeof(QChar));
+        copy(p, 0, p.length, dst + written);
         written += p.length;
     }
     return out;
@@ -83,6 +90,18 @@ QStringList PieceTable::Snapshot::lines() const
     return out;
 }
 
+void PieceTable::Snapshot::forEachLine(const std::function<bool(int, const QString &)> &fn) const
+{
+    const auto &pieces = m_core.pieces;
+    if (m_core.mapped && pieces.size() == 1 && pieces.first().bufferIndex == 0) {
+        m_core.mapped->forEachLine(fn);
+        return;
+    }
+    for (int i = 0; i < m_core.lineCount(); ++i)
+        if (!fn(i, m_core.line(i)))
+            return;
+}
+
 const QChar *PieceTable::Snapshot::chunkAt(int offset, int *length) const
 {
     *length = 0;
@@ -90,14 +109,28 @@ const QChar *PieceTable::Snapshot::chunkAt(int offset, int *length) const
         return nullptr;
     const int i = m_core.pieceFor(offset);
     const Piece &p = m_core.pieces.at(i);
+    if (p.bufferIndex == 0 && m_core.mapped)
+        return nullptr;
     const int local = offset - m_core.offsets.at(i);
     *length = p.length - local;
     return m_core.bufferOf(p).constData() + p.start + local;
 }
 
+void PieceTable::reset(std::shared_ptr<const MappedText> mapped)
+{
+    reset(QString());
+    if (!mapped || mapped->length() == 0)
+        return;
+    m_core.newlines = mapped->newlines();
+    m_core.pieces.append(Piece{0, 0, mapped->length()});
+    m_core.offsets.append(mapped->length());
+    m_core.mapped = std::move(mapped);
+}
+
 void PieceTable::reset(const QString &originalText)
 {
     m_core.original = originalText;
+    m_core.mapped.reset();
     m_core.added.clear();
     m_core.pieces.clear();
     m_core.offsets = {0};

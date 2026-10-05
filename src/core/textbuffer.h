@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <functional>
 #include "piecetable.h"
 
 namespace core {
@@ -31,6 +32,10 @@ public:
     bool load(const QString &path, QString *error = nullptr);
     // Декодирование готовых байтов (используется асинхронной загрузкой Document)
     bool loadFromData(const QByteArray &data, QString *error = nullptr);
+    // Отобразить файл в память без копирования (только чтение). false —
+    // не вышло или кодировка не UTF-8/Latin-1: тогда грузить обычным путём
+    bool loadMapped(const QString &path, const std::function<void(int)> &progress = {});
+    bool isMapped() const { return m_pt.isMapped(); }
     bool save(const QString &path, QString *error = nullptr); // атомарно (QSaveFile)
 
     int length() const { return m_pt.length(); }
@@ -41,6 +46,7 @@ public:
     int offsetOf(const Position &pos) const; // позиция зажимается в границы текста
     Position positionOf(int offset) const;
     QString text(const Position &from, const Position &to) const;
+    QString textAt(int offset, int count) const { return m_pt.textAt(offset, count); }
 
     Encoding encoding() const { return m_encoding; }
     void setEncoding(Encoding e) { m_encoding = e; }

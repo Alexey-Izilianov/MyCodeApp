@@ -1,0 +1,14 @@
+{
+    "name": "MyCodeApp samples",
+    "version": "1.0.0",
+    "debug": false,
+    "limits": {
+        "maxFileSize": 1073741824,
+        "treeSitterChars": 8388608,
+        "ratio": 0.75,
+        "negative": -12.5e3
+    },
+    "languages": ["cpp", "python", "qml", "json", "markdown"],
+    "theme": null,
+    "escapes": "line\nnext \"quoted\" \\ backslash é"
+}
