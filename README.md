@@ -16,6 +16,9 @@
 ![Светлая тема](docs/screenshot-light.png)
 </details>
 
+**Документация:** [руководство оператора](docs/operator-guide.md) ·
+[справочник по классам](docs/classes.md)
+
 ---
 
 ## Содержание
