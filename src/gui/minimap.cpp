@@ -1,6 +1,7 @@
 #include "minimap.h"
 
 #include <QCoreApplication>
+#include <QFontMetricsF>
 #include <QPainter>
 #include <QQuickWindow>
 #include <QSGImageNode>
@@ -8,10 +9,15 @@
 #include <QtMath>
 
 namespace {
-constexpr qreal kRowPitch = 2;  // высота ряда, логические пиксели
-constexpr qreal kCharWidth = 1;
-constexpr qreal kPadding = 6;   // отступ текста слева
-constexpr int kTextAlpha = 160;
+constexpr qreal kPadding = 6; // отступ текста слева
+constexpr int kBlockAlpha = 160;
+constexpr int kGlyphAlpha = 210;
+
+struct Level {
+    qreal rowPitch;
+    int columns; // сколько колонок помещается по ширине
+};
+constexpr Level kLevels[] = {{2, 90}, {5, 64}, {8, 64}};
 } // namespace
 
 Minimap::Minimap(QQuickItem *parent)
@@ -20,6 +26,34 @@ Minimap::Minimap(QQuickItem *parent)
     setFlag(ItemHasContents, true);
     setAcceptedMouseButtons(Qt::LeftButton);
     setAcceptHoverEvents(true);
+    updateMetrics();
+}
+
+void Minimap::setLevel(int level)
+{
+    level = qBound(kMinLevel, level, kMaxLevel);
+    if (level == m_level)
+        return;
+    m_level = level;
+    updateMetrics();
+    emit levelChanged();
+}
+
+void Minimap::updateMetrics()
+{
+    const Level &level = kLevels[m_level - 1];
+    m_rowPitch = level.rowPitch;
+    if (m_level == kMinLevel) {
+        m_charWidth = 1;
+    } else {
+        m_font = m_editor ? m_editor->textFont() : QFont(QStringLiteral("Consolas"));
+        m_font.setPixelSize(qRound(m_rowPitch * 0.9));
+        // Без хинтинга ширина символа дробная, но одинаковая при любом x — колонки не плывут
+        m_font.setHintingPreference(QFont::PreferNoHinting);
+        m_charWidth = QFontMetricsF(m_font).horizontalAdvance(QLatin1Char('m'));
+    }
+    setImplicitWidth(qCeil(kPadding * 2 + level.columns * m_charWidth));
+    markDirty();
 }
 
 void Minimap::setEditor(EditorView *editor)
@@ -29,13 +63,13 @@ void Minimap::setEditor(EditorView *editor)
     if (m_editor)
         disconnect(m_editor, nullptr, this, nullptr);
     m_editor = editor;
+    updateMetrics();
     if (editor) {
         connect(editor, &EditorView::contentChanged, this, &Minimap::markDirty);
         connect(editor, &EditorView::documentChanged, this, &Minimap::markDirty);
         connect(editor, &EditorView::scrollChanged, this, &QQuickItem::update);
         connect(editor, &EditorView::contentSizeChanged, this, &QQuickItem::update);
     }
-    markDirty();
     emit editorChanged();
 }
 
@@ -47,7 +81,7 @@ void Minimap::markDirty()
 
 int Minimap::capacity() const
 {
-    return qMax(2, int(height() / kRowPitch));
+    return qMax(2, int(height() / m_rowPitch));
 }
 
 qreal Minimap::editorTopRow() const
@@ -58,7 +92,7 @@ qreal Minimap::editorTopRow() const
 qreal Minimap::rowsPerPixel() const
 {
     const int rows = m_editor->rowCount(), fit = capacity();
-    return (rows > fit ? (rows - 1.0) / (fit - 1.0) : 1.0) / kRowPitch;
+    return (rows > fit ? (rows - 1.0) / (fit - 1.0) : 1.0) / m_rowPitch;
 }
 
 int Minimap::firstRow() const
@@ -72,7 +106,7 @@ int Minimap::firstRow() const
 QRectF Minimap::sliderRect() const
 {
     const qreal rows = m_editor->height() / m_editor->lineHeight();
-    return {0, (editorTopRow() - firstRow()) * kRowPitch, width(), qMax<qreal>(4, rows * kRowPitch)};
+    return {0, (editorTopRow() - firstRow()) * m_rowPitch, width(), qMax<qreal>(4, rows * m_rowPitch)};
 }
 
 void Minimap::scrollEditorTo(qreal topRow)
@@ -90,13 +124,31 @@ QImage Minimap::renderImage(int first) const
 
     QPainter painter(&image);
     painter.scale(dpr, dpr);
-    const int maxColumn = int((width() - kPadding) / kCharWidth);
+    const int maxColumn = int((width() - kPadding) / m_charWidth);
     const auto lines = m_editor->styledLines(first, capacity(), maxColumn);
+    if (m_level > kMinLevel) {
+        painter.setFont(m_font);
+        painter.setRenderHint(QPainter::TextAntialiasing);
+        const QFontMetricsF fm(m_font);
+        const qreal baseline = (m_rowPitch - fm.height()) / 2 + fm.ascent();
+        for (int i = 0; i < lines.size(); ++i) {
+            const auto &line = lines.at(i);
+            for (const auto &run : line.runs) {
+                QColor color(run.color);
+                color.setAlpha(kGlyphAlpha);
+                painter.setPen(color);
+                const int end = qMin(run.to, int(line.display.size()));
+                painter.drawText(QPointF(kPadding + run.from * m_charWidth, i * m_rowPitch + baseline),
+                                 line.display.mid(run.from, end - run.from));
+            }
+        }
+        return image;
+    }
     for (int i = 0; i < lines.size(); ++i) {
         const auto &line = lines.at(i);
         for (const auto &run : line.runs) {
             QColor color(run.color);
-            color.setAlpha(kTextAlpha);
+            color.setAlpha(kBlockAlpha);
             // Сплошные блоки по непробельным отрезкам
             const int end = qMin(run.to, int(line.display.size()));
             for (int c = run.from; c < end;) {
@@ -107,8 +159,8 @@ QImage Minimap::renderImage(int first) const
                 const int start = c;
                 while (c < end && !line.display.at(c).isSpace())
                     ++c;
-                painter.fillRect(QRectF(kPadding + start * kCharWidth, i * kRowPitch,
-                                        (c - start) * kCharWidth, kRowPitch),
+                painter.fillRect(QRectF(kPadding + start * m_charWidth, i * m_rowPitch,
+                                        (c - start) * m_charWidth, m_rowPitch),
                                  color);
             }
         }
@@ -163,7 +215,7 @@ void Minimap::mousePressEvent(QMouseEvent *event)
     if (!slider.contains(event->position())) {
         // Клик мимо рамки — центрируем редактор на этом ряду и продолжаем как перетаскивание
         const qreal editorRows = m_editor->height() / m_editor->lineHeight();
-        scrollEditorTo(firstRow() + y / kRowPitch - editorRows / 2);
+        scrollEditorTo(firstRow() + y / m_rowPitch - editorRows / 2);
         slider = sliderRect();
     }
     m_dragOffset = y - slider.top();
@@ -200,6 +252,12 @@ void Minimap::hoverLeaveEvent(QHoverEvent *)
 
 void Minimap::wheelEvent(QWheelEvent *event)
 {
+    if (event->modifiers() & Qt::ControlModifier) { // Ctrl+колесо — масштаб карты
+        if (const int step = event->angleDelta().y(); step != 0)
+            setLevel(m_level + (step > 0 ? 1 : -1));
+        event->accept();
+        return;
+    }
     if (m_editor)
         QCoreApplication::sendEvent(m_editor, event);
 }

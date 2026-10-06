@@ -464,7 +464,7 @@ void EditorView::normalizeCarets()
     m_primary = primary >= 0 ? primary : int(m_carets.size()) - 1;
 }
 
-void EditorView::caretsChanged()
+void EditorView::caretsChanged(bool scrollToCursor)
 {
     // Курсор попал в свёрнутое (поиск, Ctrl+End, undo) — разворачиваем
     bool revealed = false;
@@ -477,7 +477,8 @@ void EditorView::caretsChanged()
     if (revealed)
         foldsChanged();
     updateBrackets();
-    ensureCursorVisible();
+    if (scrollToCursor)
+        ensureCursorVisible();
     restartCaretBlink();
     emit cursorChanged();
     update();
@@ -1094,7 +1095,7 @@ void EditorView::liftHiddenCarets()
     normalizeCarets();
 }
 
-void EditorView::toggleFold(int line)
+void EditorView::toggleFold(int line, bool scrollToCursor)
 {
     if (!m_document)
         return;
@@ -1106,7 +1107,7 @@ void EditorView::toggleFold(int line)
         liftHiddenCarets();
     }
     foldsChanged();
-    caretsChanged();
+    caretsChanged(scrollToCursor);
 }
 
 void EditorView::foldAtCursor()
@@ -1373,7 +1374,7 @@ void EditorView::mousePressEvent(QMouseEvent *event)
         setCarets({{c, c}}, 0);
         emit definitionClicked(c.line, c.column);
     } else if (inFoldMarker(x)) {
-        toggleFold(c.line);
+        toggleFold(c.line, false);
     } else if (x < textLeft()) { // клик по номеру строки — вся строка (со свёрнутым блоком)
         const int nextRow = rowOf(c.line) + 1;
         const Cursor next = nextRow < rowCount() ? Cursor{lineAt(nextRow), 0}
@@ -1382,7 +1383,7 @@ void EditorView::mousePressEvent(QMouseEvent *event)
         m_mouseMode = MouseMode::Select;
     } else if (m_folds.isFolded(c.line) && !(mods & Qt::AltModifier)
                && x - textLeft() + m_scrollX >= foldPlaceholderX(c.line)) { // клик по «…»
-        toggleFold(c.line);
+        toggleFold(c.line, false);
     } else if (mods & Qt::AltModifier) { // Alt+клик — ещё курсор, Alt+протяжка — блок
         QVector<Caret> carets = m_carets;
         carets.append({c, c});

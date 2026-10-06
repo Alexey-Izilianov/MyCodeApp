@@ -14,9 +14,6 @@
 
 class RecoveryManager;
 
-// Список открытых документов: открытие/закрытие, активный таб.
-// Владеет всеми Document'ами. Файлы больше порога грузятся асинхронно
-// с прогрессом (loading/loadPercent/loadingName — для оверлея в QML).
 class DocumentManager : public QObject {
     Q_OBJECT
     QML_ELEMENT

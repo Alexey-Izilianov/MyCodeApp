@@ -41,6 +41,9 @@ public:
     Q_INVOKABLE QString relativePath(const QString &path) const;
 
     Q_INVOKABLE QUrl lastRoot() const;
+    // Настройки приложения (settings.json)
+    Q_INVOKABLE QVariant setting(const QString &key, const QVariant &fallback = {}) const;
+    Q_INVOKABLE void setSetting(const QString &key, const QVariant &value) const;
     Q_INVOKABLE QVariantMap loadSession() const;
     Q_INVOKABLE void saveSession(const QVariantMap &session) const;
 

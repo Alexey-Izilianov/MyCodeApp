@@ -65,6 +65,7 @@ public:
     bool canUndo() const { return m_document && m_document->canUndo(); }
     bool canRedo() const { return m_document && m_document->canRedo(); }
     qreal lineHeight() const { return m_lineHeight; }
+    const QFont &textFont() const { return m_font; }
     bool readOnly() const { return m_document && m_document->isReadOnly(); }
 
     // Ряд — строка на экране после вычета свёрнутых
@@ -183,7 +184,7 @@ private:
     // Курсоры
     void setCarets(QVector<Caret> carets, int primary);
     void normalizeCarets();
-    void caretsChanged();
+    void caretsChanged(bool scrollToCursor = true);
     void moveCarets(const std::function<Cursor(const Caret &)> &target, bool extend,
                     bool keepGoal = false);
     void setBoxSelection(Cursor anchor, Cursor cursor);
@@ -229,7 +230,7 @@ private:
     { return line >= firstLine && line <= lastLine && !m_folds.isHidden(line); }
     bool inFoldMarker(qreal x) const
     { return x >= m_gutterWidth - 2 * m_charWidth && x < m_gutterWidth; }
-    void toggleFold(int line);
+    void toggleFold(int line, bool scrollToCursor = true); // клик мышью — вид не прыгает к курсору
     void foldsChanged();
     void liftHiddenCarets(); // курсоры из свёрнутого — на строку заголовка
 

@@ -18,7 +18,8 @@ ApplicationWindow {
            : "MyCodeApp"
 
     readonly property bool hasDocument: manager.currentIndex >= 0
-    property bool showMinimap: true
+    property bool showMinimap: workspace.setting("minimapVisible", true)
+    onShowMinimapChanged: workspace.setSetting("minimapVisible", showMinimap)
 
     Connections {
         target: Qt.application
@@ -211,6 +212,8 @@ ApplicationWindow {
             Action { text: qsTr("Проводник"); shortcut: "Ctrl+Shift+E"; onTriggered: { sidebar.mode = "files"; sidebar.visible = true } }
             Action { text: sidebar.visible ? qsTr("Скрыть боковую панель") : qsTr("Показать боковую панель"); shortcut: "Ctrl+B"; onTriggered: sidebar.visible = !sidebar.visible }
             Action { text: window.showMinimap ? qsTr("Скрыть миникарту") : qsTr("Показать миникарту"); onTriggered: window.showMinimap = !window.showMinimap }
+            Action { text: qsTr("Миникарта крупнее"); enabled: window.showMinimap && minimap.level < 3; onTriggered: minimap.level++ }
+            Action { text: qsTr("Миникарта мельче"); enabled: window.showMinimap && minimap.level > 1; onTriggered: minimap.level-- }
         }
     }
 
@@ -280,7 +283,9 @@ ApplicationWindow {
         anchors.right: vbar.left
         anchors.bottom: editor.bottom
         visible: window.showMinimap && window.hasDocument
-        width: visible ? 96 : 0
+        width: visible ? implicitWidth : 0
+        level: workspace.setting("minimapLevel", 3)
+        onLevelChanged: workspace.setSetting("minimapLevel", level)
     }
 
     ScrollBar {

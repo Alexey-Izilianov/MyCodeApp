@@ -204,6 +204,19 @@ QUrl Workspace::lastRoot() const
     return !root.isEmpty() && QFileInfo(root).isDir() ? QUrl::fromLocalFile(root) : QUrl();
 }
 
+QVariant Workspace::setting(const QString &key, const QVariant &fallback) const
+{
+    const QJsonValue value = readJson(settingsPath()).value(key);
+    return value.isUndefined() ? fallback : value.toVariant();
+}
+
+void Workspace::setSetting(const QString &key, const QVariant &value) const
+{
+    QJsonObject settings = readJson(settingsPath());
+    settings.insert(key, QJsonValue::fromVariant(value));
+    writeJson(settingsPath(), settings);
+}
+
 QString Workspace::sessionPath() const
 {
     const QByteArray key = QCryptographicHash::hash(m_root.toLower().toUtf8(), QCryptographicHash::Sha1);
