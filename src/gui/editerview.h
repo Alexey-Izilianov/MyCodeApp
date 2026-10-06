@@ -12,6 +12,8 @@
 #include "src/core/document.h"
 #include "src/core/editing.h"
 #include "src/core/folding.h"
+#include "src/core/snippet.h"
+#include <optional>
 #include "src/services/highlighter.h"
 #include "src/services/syntaxhighlighter.h"
 
@@ -45,6 +47,7 @@ class EditorView : public QQuickItem {
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(qreal lineHeight READ lineHeight CONSTANT)
     Q_PROPERTY(bool readOnly READ readOnly NOTIFY documentChanged)
+    Q_PROPERTY(bool snippetActive READ snippetActive NOTIFY snippetChanged)
 
 public:
     explicit EditorView(QQuickItem *parent = nullptr);
@@ -91,8 +94,8 @@ public:
     Q_INVOKABLE void cut();
     Q_INVOKABLE void paste();
     Q_INVOKABLE void selectAll();
-    Q_INVOKABLE void selectNextOccurrence(); // Ctrl+D
-    Q_INVOKABLE void addCaretVertical(int direction); // Ctrl+Alt+↑/↓
+    Q_INVOKABLE void selectNextOccurrence();
+    Q_INVOKABLE void addCaretVertical(int direction); // -1 — выше, 1 — ниже
     Q_INVOKABLE void singleCaret();
     // Выделить фрагмент и показать его посередине экрана (результат поиска)
     Q_INVOKABLE void goTo(int line, int column, int length = 0);
@@ -102,6 +105,15 @@ public:
     // текст этой правки на caretOffset; иначе курсоры едут вместе с текстом
     Q_INVOKABLE void applyTextEdits(const QVariantList &edits, int caretEdit = -1, int caretOffset = 0);
     Q_INVOKABLE QString wordBeforeCursor() const;
+    // Сниппет вместо [line:fromColumn, line:toColumn) (при выделении — вместо него):
+    // Tab/Shift+Tab — по позициям ввода, Esc — выйти
+    Q_INVOKABLE void insertSnippet(const QString &body, int line, int fromColumn, int toColumn);
+    bool snippetActive() const { return m_snippet.has_value(); }
+    // Для плагинов: одна правка = один шаг отмены
+    Q_INVOKABLE QString text() const;
+    Q_INVOKABLE void setText(const QString &text);
+    Q_INVOKABLE QString selectedText() const; // основной курсор
+    Q_INVOKABLE void replaceSelection(const QString &text);
     Q_INVOKABLE QString wordAtCursor() const;
     Q_INVOKABLE QRectF caretRectangle() const; // основной курсор, в координатах элемента
     // [{startLine, startColumn, endLine, endColumn, severity}] — подчёркивания диагностики
@@ -110,6 +122,20 @@ public:
     // Курсор и прокрутка документа для сессии: {line, column, scrollX, scrollY}
     Q_INVOKABLE QVariantMap viewStateOf(QObject *document) const;
     Q_INVOKABLE void setViewStateOf(QObject *document, const QVariantMap &state);
+
+    // Полоски изменений (git) в gutter; Removed — перед строкой line удалены строки
+    struct ChangeMark {
+        enum Kind { Added, Modified, Removed };
+        int line = 0;
+        int count = 1;
+        Kind kind = Added;
+    };
+    void setChangeMarks(QObject *document, QVector<ChangeMark> marks);
+    // Просмотр изменений: тип каждой строки и номер для gutter (-1 — без номера)
+    enum DiffLine : qint8 { Unchanged, Inserted, Deleted };
+    void setDiffLines(QObject *document, QVector<qint8> kinds, QVector<int> numbers);
+    // К следующему (direction > 0) или предыдущему изменению по кругу; 0 — к первому
+    Q_INVOKABLE bool gotoChange(int direction);
 
     // Сворачивание: блок под основным курсором (или охватывающий его), все блоки
     Q_INVOKABLE void foldAtCursor();
@@ -135,6 +161,7 @@ signals:
     void hoverRest(int line, int column, qreal x, qreal y); // мышь замерла над символом
     void hoverLeft();
     void definitionClicked(int line, int column); // Ctrl+клик
+    void snippetChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
@@ -234,6 +261,15 @@ private:
     void foldsChanged();
     void liftHiddenCarets(); // курсоры из свёрнутого — на строку заголовка
 
+    // Сниппет: позиции ввода в смещениях документа, в порядке обхода ($0 — последняя)
+    struct SnippetSession {
+        QVector<QVector<core::snippet::Range>> stops;
+        int current = 0;
+    };
+    void selectSnippetStop(int index);
+    void updateSnippet(const QVector<core::TextBuffer::Edit> &edits);
+    void endSnippet();
+
     // Поиск
     void jumpToMatch(int index);
     int nearestMatchFromCursor() const;
@@ -242,6 +278,8 @@ private:
     void buildTextNodes(int firstRow, int count, int column0, int column1);
     void buildGutterNodes(int firstRow, const QVector<int> &lineNumbers, const QVector<int> &caretLines);
     void buildFoldMarkers(int firstRow, const QVector<int> &lineNumbers);
+    QVector<QPair<QRectF, QColor>> changeRects(int firstLine, int lastLine) const;
+    QVector<QPair<QRectF, QColor>> diffRects(int firstRow, const QVector<int> &lineNumbers) const;
     qreal foldPlaceholderX(int line) const;
     QSGTextNode *textNodeFor(QRgb color);
     void setRects(QSGNode *layer, QVector<QSGSimpleRectNode *> &pool,
@@ -260,6 +298,7 @@ private:
     core::editing::IndentStyle m_indent;
     bool m_python = false;            // отступ после ':'
     core::folding::FoldSet m_folds;
+    std::optional<SnippetSession> m_snippet;
     bool m_gutterHover = false;       // маркеры развёрнутых блоков — только при наведении
     struct Diagnostic {
         Cursor start;
@@ -267,6 +306,12 @@ private:
         int severity = 1;
     };
     QVector<Diagnostic> m_diagnostics;
+    QHash<const core::Document *, QVector<ChangeMark>> m_changeMarks;
+    struct DiffLines {
+        QVector<qint8> kinds;
+        QVector<int> numbers;
+    };
+    QHash<const core::Document *, DiffLines> m_diffLines;
     QTimer m_hoverTimer;
     QPointF m_hoverPos;
 
@@ -295,6 +340,7 @@ private:
 
     // Сцена
     bool m_contentDirty = true; // текст/подсветка поменялись — пересобрать ноды
+    bool m_resetScene = false;  // сменилась тема — все ноды заново
     int m_builtFirstRow = -1;
     int m_builtRowCount = 0;
     int m_builtColumn0 = 0; // собранное окно колонок (длинные строки)
@@ -304,7 +350,9 @@ private:
     bool m_builtGutterHover = false;
     QSGNode *m_root = nullptr;
     QSGSimpleRectNode *m_background = nullptr;
+    QSGNode *m_diffLayer = nullptr;   // фон добавленных/удалённых строк
     QSGNode *m_currentLineLayer = nullptr;
+    QSGNode *m_changeLayer = nullptr; // полоски изменений в gutter
     QSGClipNode *m_textClip = nullptr;
     QSGTransformNode *m_textTransform = nullptr;
     QSGTransformNode *m_gutterTransform = nullptr;
@@ -321,6 +369,8 @@ private:
     QSGTextNode *m_gutterNode = nullptr;
     QSGTextNode *m_gutterCurrentNode = nullptr;
     QVector<QSGSimpleRectNode *> m_currentLinePool;
+    QVector<QSGSimpleRectNode *> m_diffPool;
+    QVector<QSGSimpleRectNode *> m_changePool;
     QVector<QSGSimpleRectNode *> m_selectionPool;
     QVector<QSGSimpleRectNode *> m_matchPool;
     QVector<QSGSimpleRectNode *> m_bracketPool;

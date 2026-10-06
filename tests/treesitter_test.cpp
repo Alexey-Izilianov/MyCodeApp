@@ -1,6 +1,5 @@
-// Спайк M2-2: сборка tree-sitter под MinGW + грамматики C++/Python.
-// Проверяем: загрузка языков, парсинг сниппета, инкрементальный пересчёт
-// и скорости (полный парс ~1 МБ vs правка строки).
+// tree-sitter напрямую: загрузка грамматик, разбор, инкрементальный пересчёт
+// и скорость (полный разбор ~1 МБ против правки строки).
 #include <QElapsedTimer>
 #include <QtTest>
 #include <tree_sitter/api.h>
@@ -131,7 +130,7 @@ void TreeSitterTest::parseSpeedOneMb()
                                     src.size());
     const qint64 fullMs = timer.elapsed();
     QVERIFY(p.tree != nullptr);
-    // Критерий M2-2: полный пересчёт файла 1 МБ < 100 мс
+    // Полный пересчёт файла 1 МБ < 100 мс
     QVERIFY2(fullMs < 1000, qPrintable(QStringLiteral("full: %1 ms").arg(fullMs)));
 
     // Правка одной строки в середине: вставка символа в имя функции
@@ -149,7 +148,7 @@ void TreeSitterTest::parseSpeedOneMb()
     const qint64 incMs = timer.elapsed();
     QVERIFY(updated != nullptr);
 
-    // Критерий M2-2: правка строки пересчитывает только затронутый
+    // Правка строки пересчитывает только затронутый
     // диапазон — изменённые узлы не выходят за пределы этой строки.
     uint32_t count = 0;
     TSRange *ranges = ts_tree_get_changed_ranges(old, updated, &count);

@@ -1,5 +1,6 @@
 #include "textbuffer.h"
 
+#include <QCoreApplication>
 #include <QFile>
 #include <QSaveFile>
 #include <QStringDecoder>
@@ -117,7 +118,7 @@ bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
 {
     if (raw.size() > std::numeric_limits<int>::max()) { // смещения piece table — int
         if (error)
-            *error = QStringLiteral("файл больше 2 ГБ");
+            *error = QCoreApplication::translate("TextBuffer", "Файл больше 2 ГБ");
         return false;
     }
 
@@ -140,7 +141,7 @@ bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
 #ifdef Q_OS_WIN
         text = cp1251ToString(raw);
 #else
-        text = QString::fromLatin1(raw);
+        text = QStringDecoder("windows-1251")(raw); // Qt с ICU
 #endif
         break;
     case Encoding::Latin1: {
@@ -193,7 +194,7 @@ bool TextBuffer::save(const QString &path, QString *error)
 {
     if (isMapped()) {
         if (error)
-            *error = QStringLiteral("Файл открыт только для чтения");
+            *error = QCoreApplication::translate("TextBuffer", "Файл открыт только для чтения");
         return false;
     }
 
@@ -214,7 +215,7 @@ bool TextBuffer::save(const QString &path, QString *error)
 #ifdef Q_OS_WIN
         encoded = stringToCp1251(text);
 #else
-        encoded = text.toLatin1();
+        encoded = QStringEncoder("windows-1251")(text);
 #endif
         break;
     case Encoding::Latin1:

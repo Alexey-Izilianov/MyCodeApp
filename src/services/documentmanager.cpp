@@ -42,7 +42,7 @@ void DocumentManager::reloadFromDisk(int index)
         return;
     m_conflicts.remove(m_docs.at(index));
     if (!m_docs.at(index)->reload())
-        emit errorOccurred(QStringLiteral("не удалось перечитать файл"));
+        emit errorOccurred(tr("Не удалось перечитать файл"));
 }
 
 void DocumentManager::keepLocal(int index)
@@ -132,7 +132,7 @@ int DocumentManager::open(const QUrl &url)
             m_loadingDocs.removeOne(doc);
             emit loadingChanged();
             delete doc;
-            emit errorOccurred(QStringLiteral("не удалось открыть файл"));
+            emit errorOccurred(tr("Не удалось открыть файл"));
             return -1;
         }
         return -1; // таб появится по окончании загрузки
@@ -140,7 +140,7 @@ int DocumentManager::open(const QUrl &url)
 
     if (!doc->load(path)) {
         delete doc;
-        emit errorOccurred(QStringLiteral("не удалось открыть файл"));
+        emit errorOccurred(tr("Не удалось открыть файл"));
         return -1;
     }
     publish(doc);
@@ -156,7 +156,7 @@ void DocumentManager::finishAsyncLoad(core::Document *doc, bool ok)
         publish(doc);
     } else {
         doc->deleteLater();
-        emit errorOccurred(QStringLiteral("не удалось открыть файл"));
+        emit errorOccurred(tr("Не удалось открыть файл"));
     }
     if (!isLoading())
         emit loadingChanged();

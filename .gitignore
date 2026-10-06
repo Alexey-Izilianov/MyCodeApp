@@ -87,3 +87,6 @@ PLAN.md
 # Сгенерированные тестовые файлы (python samples/generate.py)
 /samples/medium/
 /samples/large/
+
+# Сборка релиза (tools/package.ps1)
+/dist/

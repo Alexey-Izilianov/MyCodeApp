@@ -132,7 +132,7 @@ void DocumentTest::crlfPasteIsNormalized()
 
 void DocumentTest::thousandUndosAreFast()
 {
-    // Критерий M2-3: 1000 undo-операций, отклик мгновенный
+    // 1000 отмен подряд — без заметной задержки
     Document doc;
     Document::Position pos{0, 0};
     for (int i = 0; i < 1000; ++i)
@@ -249,8 +249,7 @@ void DocumentTest::multiReplaceMixedLengths()
 
 void DocumentTest::thousandCaretsAreFast()
 {
-    // Критерий M2-4 «несколько курсоров без деградации» — с большим запасом:
-    // 1000 курсоров в файле на 10 000 строк
+    // Много курсоров без деградации: 1000 курсоров в файле на 10 000 строк
     Document doc;
     QString content;
     for (int i = 0; i < 10000; ++i)

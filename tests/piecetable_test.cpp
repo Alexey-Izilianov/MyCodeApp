@@ -124,8 +124,6 @@ void PieceTableTest::removeSpanningPieces()
 {
     PieceTable pt;
     pt.reset(QStringLiteral("aaa\nbbb\nccc\nddd"));
-    // Удаляем через границу строк: "c\ndd" → текст "aaa\nbbb\ncccddd"
-    // точнее: offset = 8 ("aaa\nbbb\n" = 8), count = 3 ("c\nd")
     pt.insert(8, QStringLiteral("XX"));   // "aaa\nbbb\nXXccc\nddd"
     pt.verify();
     pt.remove(8, 5);                      // "XXccc" → "aaa\nbbb\n\nddd"

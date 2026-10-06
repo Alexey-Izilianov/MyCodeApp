@@ -1,4 +1,5 @@
 #include "lspmanager.h"
+#include "src/services/appsettings.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -169,7 +170,7 @@ void LspManager::loadConfig()
     };
     QJsonObject servers = read(QStringLiteral(":/assets/lsp.json"));
     // Пользовательский файл заменяет описание сервера целиком
-    const QJsonObject user = read(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+    const QJsonObject user = read(appDataDir()
                                   + QStringLiteral("/lsp.json"));
     for (auto it = user.begin(); it != user.end(); ++it)
         servers.insert(it.key(), it.value());
@@ -582,75 +583,26 @@ void LspManager::acceptCompletion(EditorView *editor, int index)
         }
         text = edit.value(QStringLiteral("newText")).toString();
     }
+    const QJsonArray additional = item.value(QStringLiteral("additionalTextEdits")).toArray();
+    const bool snippet = item.value(QStringLiteral("insertTextFormat")).toInt() == 2;
+    if (snippet && additional.isEmpty()) {
+        editor->insertSnippet(text, line, from, to); // Tab — по позициям ввода
+        cancelCompletion();
+        return;
+    }
     int cursor = int(text.size());
-    if (item.value(QStringLiteral("insertTextFormat")).toInt() == 2)
-        std::tie(text, cursor) = expandSnippet(text);
+    if (snippet) { // правки выше по файлу сдвинут строки — сниппет вставляется простым текстом
+        const core::snippet::Expansion expansion = core::snippet::expand(text);
+        text = expansion.text;
+        cursor = expansion.stops.first().ranges.first().start;
+    }
 
     QVariantList edits{QVariantMap{{QStringLiteral("startLine"), line}, {QStringLiteral("startColumn"), from},
                                    {QStringLiteral("endLine"), line}, {QStringLiteral("endColumn"), to},
                                    {QStringLiteral("text"), text}}};
-    edits += editsFromJson(item.value(QStringLiteral("additionalTextEdits")).toArray());
+    edits += editsFromJson(additional);
     editor->applyTextEdits(edits, 0, cursor);
     cancelCompletion();
-}
-
-QPair<QString, int> LspManager::expandSnippet(const QString &snippet)
-{
-    QString out;
-    int firstTab = std::numeric_limits<int>::max(), cursor = -1, finalCursor = -1;
-    auto tabStop = [&](int number, int at) {
-        if (number == 0)
-            finalCursor = at;
-        else if (number < firstTab) {
-            firstTab = number;
-            cursor = at;
-        }
-    };
-    for (int i = 0; i < snippet.size(); ++i) {
-        const QChar c = snippet.at(i);
-        if (c == u'\\' && i + 1 < snippet.size()) {
-            out += snippet.at(++i);
-            continue;
-        }
-        if (c != u'$' || i + 1 == snippet.size()) {
-            out += c;
-            continue;
-        }
-        const QChar next = snippet.at(i + 1);
-        if (next.isDigit()) {
-            int j = i + 1, number = 0;
-            for (; j < snippet.size() && snippet.at(j).isDigit(); ++j)
-                number = number * 10 + snippet.at(j).digitValue();
-            tabStop(number, int(out.size()));
-            i = j - 1;
-        } else if (next == u'{') {
-            int depth = 0, j = i + 1;
-            for (; j < snippet.size(); ++j) {
-                if (snippet.at(j) == u'{')
-                    ++depth;
-                else if (snippet.at(j) == u'}' && --depth == 0)
-                    break;
-            }
-            const QString inner = snippet.mid(i + 2, j - i - 2); // "1:имя", "2|a,b|" или "1"
-            int k = 0, number = 0;
-            for (; k < inner.size() && inner.at(k).isDigit(); ++k)
-                number = number * 10 + inner.at(k).digitValue();
-            tabStop(number, int(out.size()));
-            if (k < inner.size() && inner.at(k) == u':')
-                out += expandSnippet(inner.mid(k + 1)).first;
-            else if (k < inner.size() && inner.at(k) == u'|')
-                out += inner.mid(k + 1).section(u',', 0, 0).remove(u'|');
-            i = j;
-        } else if (next.isLetter() || next == u'_') { // переменные ($TM_FILENAME) не поддерживаем — пропускаем имя
-            int j = i + 1;
-            while (j < snippet.size() && (snippet.at(j).isLetterOrNumber() || snippet.at(j) == u'_'))
-                ++j;
-            i = j - 1;
-        } else {
-            out += c;
-        }
-    }
-    return {out, cursor >= 0 ? cursor : finalCursor >= 0 ? finalCursor : int(out.size())};
 }
 
 // ── Навигация и правки ──────────────────────────────────────────────────

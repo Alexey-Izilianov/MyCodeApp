@@ -32,6 +32,27 @@ QModelIndex ProjectModel::rootIndex() const
     return m_rules->root().isEmpty() ? QModelIndex() : mapFromSource(m_files->index(m_rules->root()));
 }
 
+void ProjectModel::setGit(GitService *git)
+{
+    if (git == m_git)
+        return;
+    if (m_git)
+        disconnect(m_git, nullptr, this, nullptr);
+    m_git = git;
+    if (git)
+        connect(git, &GitService::decorationsChanged, this, &ProjectModel::decorationsChanged);
+    emit gitChanged();
+}
+
+void ProjectModel::decorationsChanged(const QStringList &paths)
+{
+    for (const QString &path : paths) {
+        const QModelIndex index = mapFromSource(m_files->index(path));
+        if (index.isValid())
+            emit dataChanged(index, index, {GitStatusRole});
+    }
+}
+
 QModelIndex ProjectModel::indexForPath(const QString &path) const
 {
     return mapFromSource(m_files->index(path));
@@ -44,8 +65,12 @@ QVariant ProjectModel::data(const QModelIndex &index, int role) const
         return m_files->filePath(mapToSource(index));
     case IsDirRole:
         return m_files->isDir(mapToSource(index));
-    case GitStatusRole:
-        return QString(); // заполнится в M5 (libgit2)
+    case GitStatusRole: {
+        if (!m_git)
+            return QString();
+        const QModelIndex source = mapToSource(index);
+        return m_git->decorationOf(m_files->filePath(source), m_files->isDir(source));
+    }
     default:
         return QSortFilterProxyModel::data(index, role);
     }

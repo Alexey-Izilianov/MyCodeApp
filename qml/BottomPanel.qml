@@ -11,7 +11,7 @@ Rectangle {
     property string mode: "problems" // "problems" | "references"
     signal openAt(string path, int line, int column)
 
-    readonly property var severityColors: ["#e0605a", "#d4a94f", "#6c9bd2", "#6c9bd2"]
+    readonly property var severityColors: [Theme.error, Theme.warning, Theme.info, Theme.info]
 
     function show(newMode) {
         mode = newMode

@@ -6,8 +6,10 @@ Rectangle {
     id: statusBar
     required property EditorView editor
     required property LspManager lsp
+    property string branch: ""
     readonly property bool hasFile: editor.filePath !== ""
     signal problemsRequested()
+    signal branchRequested()
 
     // Сообщение на несколько секунд вместо пути файла («Определение не найдено» и т.п.)
     function flash(text) {
@@ -74,6 +76,14 @@ Rectangle {
         spacing: 18
         visible: statusBar.hasFile
 
+        Label {
+            visible: statusBar.branch !== ""
+            text: qsTr("Ветка: %1").arg(statusBar.branch)
+            color: branchLink.hovered ? Theme.text : Theme.muted
+            font.pixelSize: Theme.smallFontSize
+            HoverHandler { id: branchLink; cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: statusBar.branchRequested() }
+        }
         Label {
             visible: statusBar.errors + statusBar.warnings > 0
             text: [statusBar.errors > 0 ? qsTr("Ошибок: %1").arg(statusBar.errors) : "",

@@ -8,6 +8,8 @@
 #include <QSGSimpleRectNode>
 #include <QtMath>
 
+#include "src/services/palette.h"
+
 namespace {
 constexpr qreal kPadding = 6; // отступ текста слева
 constexpr int kBlockAlpha = 160;
@@ -195,7 +197,9 @@ QSGNode *Minimap::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     imageNode->setRect(boundingRect());
 
     const int alpha = m_dragging ? 36 : m_hover ? 26 : 14;
-    slider->setColor(QColor(255, 255, 255, alpha));
+    QColor sliderColor(Palette::instance().editor().text); // заметна и на светлой теме
+    sliderColor.setAlpha(alpha);
+    slider->setColor(sliderColor);
     slider->setRect(hasText ? sliderRect() : QRectF());
     return oldNode;
 }

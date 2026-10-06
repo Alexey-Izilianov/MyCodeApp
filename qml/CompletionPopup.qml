@@ -21,9 +21,18 @@ Popup {
 
     function trigger() {
         lsp.requestCompletion(editor)
+        // Сниппеты показываются сразу, ответ сервера добавится к ним
+        if (!visible && SnippetStore.completions(editor.language, editor.wordBeforeCursor()).length > 0) {
+            startLine = editor.cursorLine
+            startColumn = editor.cursorColumn - editor.wordBeforeCursor().length
+            refresh()
+        }
     }
     function refresh() {
-        items = lsp.completionItems(editor.wordBeforeCursor())
+        const prefix = editor.wordBeforeCursor()
+        const snippets = SnippetStore.completions(editor.language, prefix)
+            .map(s => ({ index: -1, label: s.label, detail: s.detail, kind: 15, body: s.body }))
+        items = snippets.concat(lsp.completionItems(prefix))
         if (items.length === 0) {
             close()
             return
@@ -34,17 +43,26 @@ Popup {
         x = Math.min(at.x - 24, parent.width - width - 8)
         y = at.y + height > parent.height ? at.y - caret.height - height : at.y
         open()
-        documentation.text = ""
-        lsp.requestDocumentation(items[0].index)
+        showDocumentation(items[0])
+    }
+    function showDocumentation(item) {
+        documentation.text = item.body !== undefined ? "```\n" + item.body + "\n```" : ""
+        if (item.body === undefined)
+            lsp.requestDocumentation(item.index)
     }
     function accept() {
-        if (list.currentIndex >= 0 && list.currentIndex < items.length)
-            lsp.acceptCompletion(editor, items[list.currentIndex].index)
+        if (list.currentIndex >= 0 && list.currentIndex < items.length) {
+            const item = items[list.currentIndex]
+            if (item.body !== undefined)
+                editor.insertSnippet(item.body, startLine, startColumn, editor.cursorColumn)
+            else
+                lsp.acceptCompletion(editor, item.index)
+        }
         close()
     }
     function move(step) {
         list.currentIndex = Math.max(0, Math.min(items.length - 1, list.currentIndex + step))
-        lsp.requestDocumentation(items[list.currentIndex].index)
+        showDocumentation(items[list.currentIndex])
     }
     function handleKey(event) {
         if (!visible)
@@ -71,7 +89,7 @@ Popup {
             popup.refresh()
         }
         function onDocumentationReady(index, markdown) {
-            if (popup.visible && popup.items[list.currentIndex]?.index === index)
+            if (popup.visible && index >= 0 && popup.items[list.currentIndex]?.index === index)
                 documentation.text = markdown
         }
     }

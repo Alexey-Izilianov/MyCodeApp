@@ -56,8 +56,6 @@ public:
     Q_INVOKABLE void rename(EditorView *editor, const QString &newName);
     Q_INVOKABLE void format(EditorView *editor);
 
-    // Сниппет LSP ($1, ${2:имя}, ${3|a,b|}) -> текст и позиция курсора в нём
-    static QPair<QString, int> expandSnippet(const QString &snippet);
 
 signals:
     void documentsChanged();

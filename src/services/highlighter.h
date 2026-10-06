@@ -6,7 +6,8 @@
 #include <QString>
 #include <QVector>
 
-// Подсветка синтаксиса по регэксп-правилам из JSON (M1).
+// Подсветка по регэксп-правилам из JSON: языки без грамматики tree-sitter
+// и замена, пока дерево ещё не построено.
 // Правила построчные: блочные комментарии /* ... */ учитываются только
 // внутри одной строки. Приоритет правила = его порядок в JSON.
 class Highlighter {
@@ -28,7 +29,8 @@ public:
 private:
     struct Rule {
         QRegularExpression re;
-        QColor color;
+        QString type;  // вид подсветки — цвет из темы
+        QColor color;  // если тема этот вид не задаёт
     };
     struct Language {
         QSet<QString> extensions;

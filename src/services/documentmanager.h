@@ -79,5 +79,5 @@ private:
     QTimer m_diskCheck;
     QSet<core::Document *> m_conflicts; // уже спросили — ждём ответа
 
-    static constexpr qint64 kAsyncLoadThreshold = 20 * 1024 * 1024; // 20 МБ
+    static constexpr qint64 kAsyncLoadThreshold = 20 * 1024 * 1024;
 };

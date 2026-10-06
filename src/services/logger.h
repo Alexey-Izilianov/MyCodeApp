@@ -1,11 +1,12 @@
 #pragma once
 
 #include <QDir>
-#include <QStandardPaths>
 #include <spdlog/spdlog.h>
+
+#include "appsettings.h"
 #include <spdlog/sinks/basic_file_sink.h>
 
-// Единый лог приложения: %LOCALAPPDATA%/appMyCodeApp/app.log.
+// Единый лог приложения: <папка данных>/app.log.
 // Вызывается один раз из main() после создания QApplication.
 inline void initLogging()
 {
@@ -13,8 +14,7 @@ inline void initLogging()
     if (inited)
         return;
     inited = true;
-    const QString dir = QStandardPaths::writableLocation(
-        QStandardPaths::AppLocalDataLocation);
+    const QString dir = appDataDir();
     QDir().mkpath(dir);
     const std::string file = (dir + QStringLiteral("/app.log")).toStdString();
     auto logger = spdlog::basic_logger_mt("app", file, true);

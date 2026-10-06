@@ -6,42 +6,15 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QStandardPaths>
 
+#include "appsettings.h"
 #include "ignorerules.h"
 
 namespace {
 
-QString dataDir()
-{
-    return QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-}
-
-QJsonObject readJson(const QString &path)
-{
-    QFile file(path);
-    return file.open(QIODevice::ReadOnly) ? QJsonDocument::fromJson(file.readAll()).object()
-                                          : QJsonObject();
-}
-
-void writeJson(const QString &path, const QJsonObject &object)
-{
-    QDir().mkpath(QFileInfo(path).absolutePath());
-    QFile file(path);
-    if (file.open(QIODevice::WriteOnly))
-        file.write(QJsonDocument(object).toJson());
-}
-
-QString settingsPath()
-{
-    return dataDir() + QStringLiteral("/settings.json");
-}
-
 void rememberRoot(const QString &root)
 {
-    QJsonObject settings = readJson(settingsPath());
-    settings.insert(QStringLiteral("lastWorkspace"), root);
-    writeJson(settingsPath(), settings);
+    setAppSetting(QStringLiteral("lastWorkspace"), root);
 }
 
 } // namespace
@@ -200,36 +173,33 @@ QString Workspace::relativePath(const QString &path) const
 
 QUrl Workspace::lastRoot() const
 {
-    const QString root = readJson(settingsPath()).value(QStringLiteral("lastWorkspace")).toString();
+    const QString root = appSetting(QStringLiteral("lastWorkspace")).toString();
     return !root.isEmpty() && QFileInfo(root).isDir() ? QUrl::fromLocalFile(root) : QUrl();
 }
 
 QVariant Workspace::setting(const QString &key, const QVariant &fallback) const
 {
-    const QJsonValue value = readJson(settingsPath()).value(key);
-    return value.isUndefined() ? fallback : value.toVariant();
+    return appSetting(key, fallback);
 }
 
 void Workspace::setSetting(const QString &key, const QVariant &value) const
 {
-    QJsonObject settings = readJson(settingsPath());
-    settings.insert(key, QJsonValue::fromVariant(value));
-    writeJson(settingsPath(), settings);
+    setAppSetting(key, value);
 }
 
 QString Workspace::sessionPath() const
 {
     const QByteArray key = QCryptographicHash::hash(m_root.toLower().toUtf8(), QCryptographicHash::Sha1);
-    return dataDir() + QStringLiteral("/sessions/") + QString::fromLatin1(key.toHex()) + QStringLiteral(".json");
+    return appDataDir() + QStringLiteral("/sessions/") + QString::fromLatin1(key.toHex()) + QStringLiteral(".json");
 }
 
 QVariantMap Workspace::loadSession() const
 {
-    return m_root.isEmpty() ? QVariantMap() : readJson(sessionPath()).toVariantMap();
+    return m_root.isEmpty() ? QVariantMap() : readJsonFile(sessionPath()).toVariantMap();
 }
 
 void Workspace::saveSession(const QVariantMap &session) const
 {
     if (!m_root.isEmpty())
-        writeJson(sessionPath(), QJsonObject::fromVariantMap(session));
+        writeJsonFile(sessionPath(), QJsonObject::fromVariantMap(session));
 }

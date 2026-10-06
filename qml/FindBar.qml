@@ -57,7 +57,7 @@ Rectangle {
             placeholderText: qsTr("Найти")
             placeholderTextColor: Theme.faint
             color: Theme.text
-            selectionColor: "#2e436e"
+            selectionColor: Theme.selection
             selectedTextColor: Theme.text
             selectByMouse: true
             verticalAlignment: TextInput.AlignVCenter
@@ -81,7 +81,7 @@ Rectangle {
             horizontalAlignment: Text.AlignRight
             rightPadding: 6
             font.pixelSize: Theme.smallFontSize
-            color: input.text !== "" && bar.total === 0 ? "#d9786b" : Theme.faint
+            color: input.text !== "" && bar.total === 0 ? Theme.error : Theme.faint
             text: input.text === "" ? ""
                 : bar.total === 0 ? qsTr("Нет совпадений")
                 : (bar.current > 0 ? bar.current : "?") + qsTr(" из ") + bar.total

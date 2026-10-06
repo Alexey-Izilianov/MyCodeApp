@@ -55,7 +55,7 @@ ApplicationWindow {
         if (current >= 0)
             manager.activate(current)
     }
-    // Переходы к определению запоминаются: Alt+← возвращает назад
+    // Переходы к определению запоминаются: команда «Назад» возвращает
     property var history: []
     function navigateTo(path, line, column) {
         if (hasDocument)
@@ -98,6 +98,56 @@ ApplicationWindow {
         onErrorOccurred: (message) => console.warn(message)
         Component.onCompleted: restoreUnsaved() // несохранённое после сбоя или выхода
         onExternalChange: (index, name) => reloadDialog.ask(index, name)
+    }
+
+    ShellIntegration { id: shell }
+    PluginManager {
+        id: plugins
+        editor: editor
+        onMessage: (text) => statusBar.flash(text)
+    }
+    Connections {
+        target: ThemeManager
+        function onMessage(text) { statusBar.flash(text) }
+    }
+    Connections {
+        target: SnippetStore
+        function onMessage(text) { statusBar.flash(text) }
+    }
+
+    GitService {
+        id: git
+        rootPath: workspace.rootPath
+        documents: manager
+        onMessage: (text) => statusBar.flash(text)
+        onStateChanged: marksTimer.restart()
+    }
+    // Полоски изменений пересчитываются после паузы в правке
+    Timer {
+        id: marksTimer
+        interval: 400
+        onTriggered: git.updateMarks(editor)
+    }
+    Connections {
+        target: editor
+        function onContentChanged() { marksTimer.restart() }
+    }
+    Connections {
+        target: manager
+        function onTabsChanged() { git.refresh() } // в т.ч. сохранение файла
+    }
+    onActiveChanged: if (active) git.refresh()
+
+    function showFileDiff() {
+        if (!hasDocument || editor.filePath === "")
+            return
+        diffView.show(editor.filePath, false)
+    }
+    function stepChange(direction) {
+        if (diffView.visible)
+            diffView.step(direction)
+        else if (hasDocument)
+            editor.gotoChange(direction)
     }
 
     LspManager {
@@ -148,72 +198,162 @@ ApplicationWindow {
 
         AppMenu {
             title: qsTr("Файл")
-            Action { text: qsTr("Открыть…"); shortcut: "Ctrl+O"; onTriggered: fileDialog.open() }
-            Action { text: qsTr("Открыть папку…"); shortcut: "Ctrl+K, Ctrl+O"; onTriggered: folderDialog.open() }
-            Action { text: qsTr("Закрыть папку"); enabled: workspace.rootPath !== ""; onTriggered: window.closeFolder() }
-            Action {
-                text: qsTr("Сохранить"); shortcut: "Ctrl+S"
+            Command { command: "file.open"; text: qsTr("Открыть…"); defaultShortcut: "Ctrl+O"; onTriggered: fileDialog.open() }
+            Command { command: "file.openFolder"; text: qsTr("Открыть папку…"); defaultShortcut: "Ctrl+K, Ctrl+O"; onTriggered: folderDialog.open() }
+            Command { command: "file.closeFolder"; text: qsTr("Закрыть папку"); enabled: workspace.rootPath !== ""; onTriggered: window.closeFolder() }
+            Command {
+                command: "file.save"
+                text: qsTr("Сохранить"); defaultShortcut: "Ctrl+S"
                 enabled: window.hasDocument
                 onTriggered: editor.save()
             }
             AppMenuSeparator {}
-            Action {
-                text: qsTr("Закрыть вкладку"); shortcut: "Ctrl+W"
+            Command {
+                command: "file.closeTab"
+                text: qsTr("Закрыть вкладку"); defaultShortcut: "Ctrl+W"
                 enabled: window.hasDocument
                 onTriggered: window.requestClose(manager.currentIndex)
             }
             AppMenuSeparator {}
-            Action { text: qsTr("Выход"); shortcut: "Ctrl+Q"; onTriggered: window.close() }
+            Command { command: "app.settings"; text: qsTr("Настройки…"); defaultShortcut: "Ctrl+,"; onTriggered: settingsDialog.open() }
+            Action {
+                text: shell.registered ? qsTr("Убрать из «Открыть с помощью»") : qsTr("Добавить в «Открыть с помощью»")
+                enabled: shell.supported
+                onTriggered: {
+                    const register = !shell.registered
+                    const ok = shell.setRegistered(register)
+                    statusBar.flash(!ok ? qsTr("Не удалось изменить реестр")
+                                        : register ? qsTr("MyCodeApp добавлен в «Открыть с помощью» и меню папок")
+                                                   : qsTr("MyCodeApp убран из меню Проводника"))
+                }
+            }
+            AppMenuSeparator {}
+            Command { command: "app.quit"; text: qsTr("Выход"); defaultShortcut: "Ctrl+Q"; onTriggered: window.close() }
         }
         AppMenu {
             title: qsTr("Правка")
-            Action { text: qsTr("Отменить"); shortcut: "Ctrl+Z"; enabled: editor.canUndo; onTriggered: editor.undo() }
-            Action { text: qsTr("Повторить"); shortcut: "Ctrl+Y"; enabled: editor.canRedo; onTriggered: editor.redo() }
+            Command { command: "edit.undo"; text: qsTr("Отменить"); defaultShortcut: "Ctrl+Z"; enabled: editor.canUndo; onTriggered: editor.undo() }
+            Command { command: "edit.redo"; text: qsTr("Повторить"); defaultShortcut: "Ctrl+Y"; enabled: editor.canRedo; onTriggered: editor.redo() }
             AppMenuSeparator {}
-            Action { text: qsTr("Вырезать"); shortcut: "Ctrl+X"; enabled: window.hasDocument; onTriggered: editor.cut() }
-            Action { text: qsTr("Копировать"); shortcut: "Ctrl+C"; enabled: window.hasDocument; onTriggered: editor.copy() }
-            Action { text: qsTr("Вставить"); shortcut: "Ctrl+V"; enabled: window.hasDocument; onTriggered: editor.paste() }
+            Command { command: "edit.cut"; text: qsTr("Вырезать"); defaultShortcut: "Ctrl+X"; enabled: window.hasDocument; onTriggered: editor.cut() }
+            Command { command: "edit.copy"; text: qsTr("Копировать"); defaultShortcut: "Ctrl+C"; enabled: window.hasDocument; onTriggered: editor.copy() }
+            Command { command: "edit.paste"; text: qsTr("Вставить"); defaultShortcut: "Ctrl+V"; enabled: window.hasDocument; onTriggered: editor.paste() }
             AppMenuSeparator {}
-            Action { text: qsTr("Выделить всё"); shortcut: "Ctrl+A"; enabled: window.hasDocument; onTriggered: editor.selectAll() }
+            Command { command: "edit.selectAll"; text: qsTr("Выделить всё"); defaultShortcut: "Ctrl+A"; enabled: window.hasDocument; onTriggered: editor.selectAll() }
             AppMenuSeparator {}
-            Action { text: qsTr("Выделить следующее вхождение"); shortcut: "Ctrl+D"; enabled: window.hasDocument; onTriggered: editor.selectNextOccurrence() }
-            Action { text: qsTr("Добавить курсор выше"); shortcut: "Ctrl+Alt+Up"; enabled: window.hasDocument; onTriggered: editor.addCaretVertical(-1) }
-            Action { text: qsTr("Добавить курсор ниже"); shortcut: "Ctrl+Alt+Down"; enabled: window.hasDocument; onTriggered: editor.addCaretVertical(1) }
+            Command { command: "edit.selectNextOccurrence"; text: qsTr("Выделить следующее вхождение"); defaultShortcut: "Ctrl+D"; enabled: window.hasDocument; onTriggered: editor.selectNextOccurrence() }
+            Command { command: "edit.addCaretAbove"; text: qsTr("Добавить курсор выше"); defaultShortcut: "Ctrl+Alt+Up"; enabled: window.hasDocument; onTriggered: editor.addCaretVertical(-1) }
+            Command { command: "edit.addCaretBelow"; text: qsTr("Добавить курсор ниже"); defaultShortcut: "Ctrl+Alt+Down"; enabled: window.hasDocument; onTriggered: editor.addCaretVertical(1) }
         }
         AppMenu {
             title: qsTr("Поиск")
-            Action { text: qsTr("Найти…"); shortcut: "Ctrl+F"; enabled: window.hasDocument; onTriggered: findBar.open() }
-            Action { text: qsTr("Следующее совпадение"); shortcut: "F3"; enabled: window.hasDocument; onTriggered: editor.findNext() }
-            Action { text: qsTr("Предыдущее совпадение"); shortcut: "Shift+F3"; enabled: window.hasDocument; onTriggered: editor.findPrev() }
+            Command { command: "find.find"; text: qsTr("Найти…"); defaultShortcut: "Ctrl+F"; enabled: window.hasDocument; onTriggered: findBar.open() }
+            Command { command: "find.next"; text: qsTr("Следующее совпадение"); defaultShortcut: "F3"; enabled: window.hasDocument; onTriggered: editor.findNext() }
+            Command { command: "find.previous"; text: qsTr("Предыдущее совпадение"); defaultShortcut: "Shift+F3"; enabled: window.hasDocument; onTriggered: editor.findPrev() }
             AppMenuSeparator {}
-            Action { text: qsTr("Перейти к файлу…"); shortcut: "Ctrl+P"; onTriggered: quickOpen.show() }
-            Action { text: qsTr("Найти в проекте…"); shortcut: "Ctrl+Shift+F"; onTriggered: sidebar.showSearch("") }
+            Command { command: "find.goToLine"; text: qsTr("Перейти к строке…"); defaultShortcut: "Ctrl+G"; enabled: window.hasDocument; onTriggered: goToLine.show() }
+            Command { command: "find.quickOpen"; text: qsTr("Перейти к файлу…"); defaultShortcut: "Ctrl+P"; onTriggered: quickOpen.show() }
+            Command { command: "find.inProject"; text: qsTr("Найти в проекте…"); defaultShortcut: "Ctrl+Shift+F"; onTriggered: sidebar.showSearch("") }
         }
         AppMenu {
             title: qsTr("Код")
-            Action { text: qsTr("Предложить варианты"); shortcut: "Ctrl+Space"; enabled: window.hasDocument; onTriggered: completion.trigger() }
-            Action { text: qsTr("Перейти к определению"); shortcut: "F12"; enabled: window.hasDocument; onTriggered: lsp.gotoDefinition(editor, editor.cursorLine, editor.cursorColumn) }
-            Action { text: qsTr("Найти ссылки"); shortcut: "Shift+F12"; enabled: window.hasDocument; onTriggered: lsp.findReferences(editor) }
-            Action { text: qsTr("Назад"); shortcut: "Alt+Left"; onTriggered: window.goBack() }
+            Command { command: "code.complete"; text: qsTr("Предложить варианты"); defaultShortcut: "Ctrl+Space"; enabled: window.hasDocument; onTriggered: completion.trigger() }
+            Command { command: "code.definition"; text: qsTr("Перейти к определению"); defaultShortcut: "F12"; enabled: window.hasDocument; onTriggered: lsp.gotoDefinition(editor, editor.cursorLine, editor.cursorColumn) }
+            Command { command: "code.references"; text: qsTr("Найти ссылки"); defaultShortcut: "Shift+F12"; enabled: window.hasDocument; onTriggered: lsp.findReferences(editor) }
+            Command { command: "code.back"; text: qsTr("Назад"); defaultShortcut: "Alt+Left"; onTriggered: window.goBack() }
             AppMenuSeparator {}
-            Action { text: qsTr("Переименовать символ"); shortcut: "F2"; enabled: window.hasDocument && !editor.readOnly; onTriggered: renamePopup.show() }
-            Action { text: qsTr("Форматировать документ"); shortcut: "Shift+Alt+F"; enabled: window.hasDocument && !editor.readOnly; onTriggered: lsp.format(editor) }
+            Command { command: "code.rename"; text: qsTr("Переименовать символ"); defaultShortcut: "F2"; enabled: window.hasDocument && !editor.readOnly; onTriggered: renamePopup.show() }
+            Command {
+                command: "code.userSnippets"
+                text: qsTr("Свои сниппеты для этого языка…")
+                enabled: window.hasDocument
+                onTriggered: window.openAt(SnippetStore.userFile(editor.language), 0, 0, 0)
+            }
+            Command { command: "code.format"; text: qsTr("Форматировать документ"); defaultShortcut: "Shift+Alt+F"; enabled: window.hasDocument && !editor.readOnly; onTriggered: lsp.format(editor) }
             AppMenuSeparator {}
-            Action { text: qsTr("Проблемы"); shortcut: "Ctrl+Shift+M"; onTriggered: bottomPanel.visible && bottomPanel.mode === "problems" ? bottomPanel.visible = false : bottomPanel.show("problems") }
+            Command { command: "view.problems"; text: qsTr("Проблемы"); defaultShortcut: "Ctrl+Shift+M"; onTriggered: bottomPanel.visible && bottomPanel.mode === "problems" ? bottomPanel.visible = false : bottomPanel.show("problems") }
+        }
+        AppMenu {
+            title: qsTr("Git")
+            Command { command: "git.panel"; text: qsTr("Панель Git"); defaultShortcut: "Ctrl+Shift+G"; onTriggered: sidebar.showGit() }
+            Command { command: "git.fileDiff"; text: qsTr("Изменения файла"); defaultShortcut: "Ctrl+K, D"; enabled: window.hasDocument && git.available; onTriggered: window.showFileDiff() }
+            AppMenuSeparator {}
+            Command { command: "git.nextChange"; text: qsTr("Следующее изменение"); defaultShortcut: "Alt+F5"; onTriggered: window.stepChange(1) }
+            Command { command: "git.previousChange"; text: qsTr("Предыдущее изменение"); defaultShortcut: "Shift+Alt+F5"; onTriggered: window.stepChange(-1) }
+            AppMenuSeparator {}
+            Command {
+                command: "git.stageFile"
+                text: qsTr("Добавить файл в индекс")
+                enabled: window.hasDocument && git.available
+                onTriggered: { editor.save(); git.stage([editor.filePath]) }
+            }
+            Command { command: "git.refresh"; text: qsTr("Обновить состояние"); enabled: git.available; onTriggered: git.refresh() }
+        }
+        AppMenu {
+            id: pluginMenu
+            title: qsTr("Плагины")
+            Instantiator {
+                model: plugins.commands
+                delegate: Command {
+                    required property var modelData
+                    command: "plugin." + modelData.id
+                    text: modelData.title
+                    defaultShortcut: modelData.shortcut
+                    onTriggered: plugins.run(modelData.id)
+                }
+                onObjectAdded: (index, object) => pluginMenu.insertAction(index, object)
+                onObjectRemoved: (index, object) => pluginMenu.removeAction(object)
+            }
+            AppMenuSeparator {}
+            Command { command: "app.plugins"; text: qsTr("Управление плагинами…"); onTriggered: { settingsDialog.page = "plugins"; settingsDialog.open() } }
         }
         AppMenu {
             title: qsTr("Вид")
-            Action { text: qsTr("Свернуть блок"); shortcut: "Ctrl+Shift+["; enabled: window.hasDocument; onTriggered: editor.foldAtCursor() }
-            Action { text: qsTr("Развернуть блок"); shortcut: "Ctrl+Shift+]"; enabled: window.hasDocument; onTriggered: editor.unfoldAtCursor() }
+            Command { command: "view.fold"; text: qsTr("Свернуть блок"); defaultShortcut: "Ctrl+Shift+["; enabled: window.hasDocument; onTriggered: editor.foldAtCursor() }
+            Command { command: "view.unfold"; text: qsTr("Развернуть блок"); defaultShortcut: "Ctrl+Shift+]"; enabled: window.hasDocument; onTriggered: editor.unfoldAtCursor() }
             AppMenuSeparator {}
-            Action { text: qsTr("Свернуть все"); shortcut: "Ctrl+K, Ctrl+0"; enabled: window.hasDocument; onTriggered: editor.foldAll() }
-            Action { text: qsTr("Развернуть все"); shortcut: "Ctrl+K, Ctrl+J"; enabled: window.hasDocument; onTriggered: editor.unfoldAll() }
+            Command { command: "view.foldAll"; text: qsTr("Свернуть все"); defaultShortcut: "Ctrl+K, Ctrl+0"; enabled: window.hasDocument; onTriggered: editor.foldAll() }
+            Command { command: "view.unfoldAll"; text: qsTr("Развернуть все"); defaultShortcut: "Ctrl+K, Ctrl+J"; enabled: window.hasDocument; onTriggered: editor.unfoldAll() }
             AppMenuSeparator {}
-            Action { text: qsTr("Проводник"); shortcut: "Ctrl+Shift+E"; onTriggered: { sidebar.mode = "files"; sidebar.visible = true } }
-            Action { text: sidebar.visible ? qsTr("Скрыть боковую панель") : qsTr("Показать боковую панель"); shortcut: "Ctrl+B"; onTriggered: sidebar.visible = !sidebar.visible }
-            Action { text: window.showMinimap ? qsTr("Скрыть миникарту") : qsTr("Показать миникарту"); onTriggered: window.showMinimap = !window.showMinimap }
-            Action { text: qsTr("Миникарта крупнее"); enabled: window.showMinimap && minimap.level < 3; onTriggered: minimap.level++ }
-            Action { text: qsTr("Миникарта мельче"); enabled: window.showMinimap && minimap.level > 1; onTriggered: minimap.level-- }
+            Command { command: "view.focusSidebar"; text: qsTr("Перейти в боковую панель"); defaultShortcut: "Ctrl+0"; onTriggered: sidebar.focusPanel() }
+            Command { command: "view.focusEditor"; text: qsTr("Перейти в редактор"); defaultShortcut: "Ctrl+1"; onTriggered: editor.forceActiveFocus() }
+            Command { command: "view.explorer"; text: qsTr("Проводник"); defaultShortcut: "Ctrl+Shift+E"; onTriggered: { sidebar.mode = "files"; sidebar.visible = true } }
+            Command { command: "view.sidebar"; title: qsTr("Показать или скрыть боковую панель"); text: sidebar.visible ? qsTr("Скрыть боковую панель") : qsTr("Показать боковую панель"); defaultShortcut: "Ctrl+B"; onTriggered: sidebar.visible = !sidebar.visible }
+            Command { command: "view.minimap"; title: qsTr("Показать или скрыть миникарту"); text: window.showMinimap ? qsTr("Скрыть миникарту") : qsTr("Показать миникарту"); onTriggered: window.showMinimap = !window.showMinimap }
+            Command { command: "view.minimapLarger"; text: qsTr("Миникарта крупнее"); enabled: window.showMinimap && minimap.level < 3; onTriggered: minimap.level++ }
+            Command { command: "view.minimapSmaller"; text: qsTr("Миникарта мельче"); enabled: window.showMinimap && minimap.level > 1; onTriggered: minimap.level-- }
+            AppMenuSeparator {}
+            AppMenu {
+                id: themeMenu
+                title: qsTr("Тема")
+                Instantiator {
+                    model: ThemeManager.themes
+                    delegate: Action {
+                        required property var modelData
+                        readonly property string title: Localization.language === "en" && modelData.nameEn ? modelData.nameEn : modelData.name
+                        text: modelData.id === ThemeManager.current ? title + qsTr("  (текущая)") : title
+                        onTriggered: ThemeManager.setTheme(modelData.id)
+                    }
+                    onObjectAdded: (index, object) => themeMenu.insertAction(index, object)
+                    onObjectRemoved: (index, object) => themeMenu.removeAction(object)
+                }
+                AppMenuSeparator {}
+                Action {
+                    text: qsTr("Создать свою тему…")
+                    onTriggered: {
+                        const path = ThemeManager.createUserTheme()
+                        if (path !== "")
+                            window.openAt(path, 0, 0, 0)
+                    }
+                }
+            }
+        }
+        AppMenu {
+            title: qsTr("Справка")
+            Command { command: "help.shortcuts"; text: qsTr("Горячие клавиши…"); onTriggered: { settingsDialog.page = "keys"; settingsDialog.open() } }
+            Command { command: "help.dataFolder"; text: qsTr("Открыть папку данных"); onTriggered: Qt.openUrlExternally("file:///" + AppInfo.dataDir) }
+            AppMenuSeparator {}
+            Command { command: "help.about"; text: qsTr("О программе"); onTriggered: aboutDialog.open() }
         }
     }
 
@@ -224,12 +364,15 @@ ApplicationWindow {
         id: sidebar
         workspace: workspace
         editor: editor
+        git: git
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.bottom: statusBar.top
         onOpenFile: (path) => window.openAt(path, 0, 0, 0)
+        onOpenDiff: (path, staged) => diffView.show(path, staged)
         onOpenMatch: (path, line, column, length) => window.openAt(path, line, column, length)
         onOpenFolderRequested: folderDialog.open()
+        onLeave: editor.forceActiveFocus()
     }
 
     TabStrip {
@@ -257,7 +400,12 @@ ApplicationWindow {
             forceActiveFocus()
             window.updateDiagnostics()
         }
-        Keys.onPressed: (event) => completion.handleKey(event) // пока открыт список, стрелки и Enter — его
+        Keys.onPressed: (event) => {
+            completion.handleKey(event) // пока открыт список, стрелки и Enter — его
+            if (!event.accepted && event.key === Qt.Key_Tab && event.modifiers === Qt.NoModifier
+                    && !editor.snippetActive && SnippetStore.expandAtCursor(editor))
+                event.accepted = true // слово перед курсором — префикс сниппета
+        }
         onTextTyped: (text) => {
             // Запрос на каждый символ идентификатора и после . -> :: — сервер сам
             // сужает выдачу по префиксу, а список уже на экране фильтруется локально
@@ -313,6 +461,18 @@ ApplicationWindow {
         when: !vbar.pressed
     }
 
+    DiffView {
+        id: diffView
+        git: git
+        anchors.top: editor.top
+        anchors.left: editor.left
+        anchors.right: parent.right
+        anchors.bottom: editor.bottom
+        onClosed: editor.forceActiveFocus()
+        onVisibleChanged: if (visible) hoverPopup.close()
+        onOpenFile: (path) => window.openAt(path, 0, 0, 0)
+    }
+
     FindBar {
         id: findBar
         editor: editor
@@ -357,6 +517,11 @@ ApplicationWindow {
         property point pending
     }
 
+    GoToLinePopup {
+        id: goToLine
+        editor: editor
+    }
+
     RenamePopup {
         id: renamePopup
         editor: editor
@@ -367,7 +532,9 @@ ApplicationWindow {
         id: statusBar
         editor: editor
         lsp: lsp
+        branch: git.branch
         onProblemsRequested: bottomPanel.show("problems")
+        onBranchRequested: sidebar.showGit()
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -393,6 +560,14 @@ ApplicationWindow {
     FolderDialog {
         id: folderDialog
         onAccepted: window.openFolder(selectedFolder)
+    }
+
+    AboutDialog { id: aboutDialog }
+
+    SettingsDialog {
+        id: settingsDialog
+        plugins: plugins
+        onOpenFile: (path) => window.openAt(path, 0, 0, 0)
     }
 
     CloseDialog {

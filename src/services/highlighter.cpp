@@ -1,4 +1,5 @@
 #include "highlighter.h"
+#include "palette.h"
 
 #include <QFile>
 #include <algorithm>
@@ -29,6 +30,7 @@ bool Highlighter::loadRules(const QString &path)
             rule.re = QRegularExpression(r.value("re").toString());
             if (!rule.re.isValid())
                 continue; // битое правило не роняет загрузку остальных
+            rule.type = r.value("type").toString();
             rule.color = QColor(r.value("color").toString());
             l.rules.append(rule);
         }
@@ -94,5 +96,8 @@ QColor Highlighter::ruleColor(int rule) const
     if (!hasLanguage())
         return QColor();
     const QVector<Rule> &rules = m_languages.at(m_language).rules;
-    return rule >= 0 && rule < rules.size() ? rules.at(rule).color : QColor();
+    if (rule < 0 || rule >= rules.size())
+        return {};
+    const QColor themed = Palette::instance().syntax(rules.at(rule).type);
+    return themed.isValid() ? themed : rules.at(rule).color;
 }

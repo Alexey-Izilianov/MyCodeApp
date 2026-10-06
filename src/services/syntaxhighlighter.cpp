@@ -6,6 +6,8 @@
 #include <QSet>
 #include <tree_sitter/api.h>
 
+#include "palette.h"
+
 extern "C" const TSLanguage *tree_sitter_cpp();
 extern "C" const TSLanguage *tree_sitter_python();
 extern "C" const TSLanguage *tree_sitter_qmljs();
@@ -286,8 +288,10 @@ void SyntaxHighlighter::highlightLines(int firstLine, const QStringList &lines,
 
 QColor SyntaxHighlighter::color(int rule)
 {
-    return rule >= 0 && rule < int(std::size(kStyles)) ? QColor(kStyles[rule].color)
-                                                       : QColor();
+    if (rule < 0 || rule >= int(std::size(kStyles)))
+        return {};
+    const QColor themed = Palette::instance().syntax(QLatin1String(kStyles[rule].capture));
+    return themed.isValid() ? themed : QColor(kStyles[rule].color);
 }
 
 const char *SyntaxHighlighter::styleName(int rule)

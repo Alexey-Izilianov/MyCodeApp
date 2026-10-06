@@ -6,6 +6,9 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include "src/services/logger.h"
+#include "src/services/appsettings.h"
+#include "src/services/localization.h"
+#include "src/services/singleinstance.h"
 
 // Свой обработчик сообщений Qt: дефолтный на Windows для GUI-приложения
 // (WIN32_EXECUTABLE, нет консоли) шлёт qDebug/qWarning в OutputDebugString —
@@ -21,18 +24,65 @@ static void qtMessageHandler(QtMsgType type, const QMessageLogContext &,
     }
 }
 
+// Файлы — вкладками, папка — проектом (функция openFolder в Main.qml)
+static void openPaths(QObject *root, const QStringList &paths)
+{
+    auto *manager = root->findChild<QObject *>(QStringLiteral("manager"));
+    for (const QString &path : paths) {
+        const QFileInfo info(path);
+        const QUrl url = QUrl::fromLocalFile(info.absoluteFilePath());
+        if (info.isDir()) {
+            QVariant opened;
+            QMetaObject::invokeMethod(root, "openFolder", Q_RETURN_ARG(QVariant, opened), Q_ARG(QVariant, url));
+        } else if (manager) {
+            int tab = -1;
+            QMetaObject::invokeMethod(manager, "open", Q_RETURN_ARG(int, tab), Q_ARG(QUrl, url));
+        }
+    }
+}
+
+static void bringToFront(QQuickWindow *window)
+{
+    if (window->windowStates() & Qt::WindowMinimized)
+        window->setWindowStates(window->windowStates() & ~Qt::WindowMinimized);
+    window->show();
+    window->raise();
+    window->requestActivate();
+}
+
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+    QGuiApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
+
+    // appMyCodeApp.exe [--profile имя] [файл|папка]... — пути абсолютные: у запущенного
+    // экземпляра своя рабочая папка
+    QStringList paths = QCoreApplication::arguments().mid(1);
+    QString profile;
+    if (const qsizetype at = paths.indexOf(QStringLiteral("--profile")); at >= 0 && at + 1 < paths.size()) {
+        profile = paths.at(at + 1);
+        paths.remove(at, 2);
+    }
+    for (QString &path : paths)
+        path = QFileInfo(path).absoluteFilePath();
+    initAppDataDir(profile);
+
+    // Повторный запуск отдаёт пути открытому окну. До initLogging: тот обнуляет общий лог.
+    // Смоук-запуски (MYCODEAPP_SHOT) всегда отдельные
+    SingleInstance instance;
+    if (qEnvironmentVariableIsEmpty("MYCODEAPP_SHOT")) {
+        if (instance.forwardToRunning(paths))
+            return 0;
+        instance.listen();
+    }
+
     initLogging();
     qInstallMessageHandler(qtMessageHandler);
     spdlog::info("main: старт");
+    Localization::applySavedLanguage();
 
     QQmlApplicationEngine engine;
     spdlog::info("main: engine создан");
-
-    // appMyCodeApp.exe <файл> — открыть файл при старте (через DocumentManager)
-    const QString startPath = argc > 1 ? QString::fromLocal8Bit(argv[1]) : QString();
 
     QObject::connect(
         &engine,
@@ -47,18 +97,14 @@ int main(int argc, char *argv[])
     spdlog::info("main: QML загружен, корневых объектов: {}",
                  std::to_string(roots.size()));
 
-    if (!startPath.isEmpty() && !roots.isEmpty()) {
-        if (auto *manager = roots.first()->findChild<QObject *>(QStringLiteral("manager"))) {
-            const QUrl startUrl = QUrl::fromLocalFile(
-                QFileInfo(startPath).absoluteFilePath());
-            int tabIndex = -1;
-            QMetaObject::invokeMethod(manager, "open", Q_RETURN_ARG(int, tabIndex),
-                                      Q_ARG(QUrl, startUrl));
-            spdlog::info("main: open() из аргумента, индекс таба: {}",
-                         std::to_string(tabIndex));
-        } else {
-            spdlog::error("main: manager не найден в сцене");
-        }
+    if (!roots.isEmpty()) {
+        QObject *root = roots.first();
+        openPaths(root, paths);
+        QObject::connect(&instance, &SingleInstance::pathsReceived, root, [root](const QStringList &received) {
+            openPaths(root, received);
+            if (auto *window = qobject_cast<QQuickWindow *>(root))
+                bringToFront(window);
+        });
     }
 
     // Смоук-режим самотеста: MYCODEAPP_SHOT=<путь.png> — открыть окно,

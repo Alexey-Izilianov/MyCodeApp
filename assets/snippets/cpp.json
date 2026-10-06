@@ -1,0 +1,72 @@
+{
+    "Цикл for": {
+        "prefix": "for",
+        "body": ["for (${1:int} ${2:i} = 0; $2 < ${3:count}; ++$2) {", "\t$0", "}"],
+        "description": "Цикл со счётчиком"
+    },
+    "Цикл по диапазону": {
+        "prefix": "forr",
+        "body": ["for (${1:const auto &}${2:item} : ${3:items}) {", "\t$0", "}"],
+        "description": "for по контейнеру"
+    },
+    "Условие": {
+        "prefix": "if",
+        "body": ["if (${1:condition}) {", "\t$0", "}"],
+        "description": "if"
+    },
+    "Условие с else": {
+        "prefix": "ife",
+        "body": ["if (${1:condition}) {", "\t$2", "} else {", "\t$0", "}"],
+        "description": "if / else"
+    },
+    "Цикл while": {
+        "prefix": "while",
+        "body": ["while (${1:condition}) {", "\t$0", "}"],
+        "description": "while"
+    },
+    "switch": {
+        "prefix": "switch",
+        "body": ["switch (${1:value}) {", "case ${2:0}:", "\t$0", "\tbreak;", "default:", "\tbreak;", "}"],
+        "description": "switch с default"
+    },
+    "Класс": {
+        "prefix": "class",
+        "body": ["class ${1:$TM_FILENAME_BASE} {", "public:", "\t${1}();", "\t~${1}();", "", "private:", "\t$0", "};"],
+        "description": "Класс с конструктором и деструктором"
+    },
+    "Структура": {
+        "prefix": "struct",
+        "body": ["struct ${1:Name} {", "\t$0", "};"],
+        "description": "struct"
+    },
+    "Класс QObject": {
+        "prefix": "qobject",
+        "body": ["class ${1:$TM_FILENAME_BASE} : public QObject {", "\tQ_OBJECT", "", "public:", "\texplicit ${1}(QObject *parent = nullptr);", "", "signals:", "\t$0", "};"],
+        "description": "Класс Qt с Q_OBJECT"
+    },
+    "main": {
+        "prefix": "main",
+        "body": ["int main(int argc, char *argv[])", "{", "\t$0", "\treturn 0;", "}"],
+        "description": "Точка входа"
+    },
+    "Лямбда": {
+        "prefix": "lambda",
+        "body": ["[${1:&}](${2}) {", "\t$0", "}"],
+        "description": "Лямбда-выражение"
+    },
+    "Пространство имён": {
+        "prefix": "namespace",
+        "body": ["namespace ${1:name} {", "", "$0", "", "} // namespace $1"],
+        "description": "namespace"
+    },
+    "include": {
+        "prefix": "inc",
+        "body": ["#include <${1:vector}>$0"],
+        "description": "#include <...>"
+    },
+    "Заголовок": {
+        "prefix": "once",
+        "body": ["#pragma once", "", "$0"],
+        "description": "#pragma once"
+    }
+}

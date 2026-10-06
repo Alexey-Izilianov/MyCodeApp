@@ -15,8 +15,6 @@ QString lineEndingString(LineEnding le);
 
 // Буфер: piece table + line index, строки без терминальных переводов.
 // Position: line/column, column — индекс QChar.
-// C M2-1 хранение — PieceTable (правки не двигают существующий текст);
-// публичный API совпадает с буфером M1.
 class TextBuffer {
 public:
     struct Position {

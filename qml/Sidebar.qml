@@ -3,20 +3,38 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import MyCodeApp
 
-// Левая панель: проводник и поиск по проекту; ширина меняется перетаскиванием края
+// Левая панель: проводник, поиск по проекту и Git; ширина меняется перетаскиванием края
 Rectangle {
     id: sidebar
     required property Workspace workspace
     required property EditorView editor
-    property string mode: "files" // "files" | "search"
+    required property GitService git
+    property string mode: "files" // "files" | "search" | "git"
     signal openFile(string path)
+    signal openDiff(string path, bool staged)
     signal openMatch(string path, int line, int column, int length)
     signal openFolderRequested()
+    signal leave()
+
+    function focusPanel() {
+        visible = true
+        if (mode === "files")
+            fileTree.focusTree()
+        else if (mode === "search")
+            searchPanel.focusInput("")
+        else
+            gitPanel.focusMessage()
+    }
 
     function showSearch(text) {
         mode = "search"
         visible = true
         searchPanel.focusInput(text)
+    }
+    function showGit() {
+        mode = "git"
+        visible = true
+        gitPanel.focusMessage()
     }
 
     width: 260
@@ -28,7 +46,10 @@ Rectangle {
         height: 32
         spacing: 2
         Repeater {
-            model: [{ mode: "files", text: qsTr("Проводник") }, { mode: "search", text: qsTr("Поиск") }]
+            model: [{ mode: "files", text: qsTr("Проводник") }, { mode: "search", text: qsTr("Поиск") },
+                    { mode: "git", text: sidebar.git.changes.length + sidebar.git.stagedChanges.length > 0
+                                         ? qsTr("Git  %1").arg(sidebar.git.changes.length + sidebar.git.stagedChanges.length)
+                                         : qsTr("Git") }]
             AbstractButton {
                 id: tab
                 required property var modelData
@@ -69,18 +90,30 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        currentIndex: sidebar.mode === "files" ? 0 : 1
+        currentIndex: ["files", "search", "git"].indexOf(sidebar.mode)
 
         FileTree {
+            id: fileTree
             workspace: sidebar.workspace
             editor: sidebar.editor
+            git: sidebar.git
             onOpenFile: (path) => sidebar.openFile(path)
             onOpenFolderRequested: sidebar.openFolderRequested()
+            onLeave: sidebar.leave()
         }
         SearchPanel {
             id: searchPanel
             rootPath: sidebar.workspace.rootPath
             onOpenMatch: (path, line, column, length) => sidebar.openMatch(path, line, column, length)
+            onLeave: sidebar.leave()
+        }
+        GitPanel {
+            id: gitPanel
+            git: sidebar.git
+            rootPath: sidebar.workspace.rootPath
+            onOpenDiff: (path, staged) => sidebar.openDiff(path, staged)
+            onOpenFile: (path) => sidebar.openFile(path)
+            onLeave: sidebar.leave()
         }
     }
 

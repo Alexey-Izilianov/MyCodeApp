@@ -82,11 +82,24 @@ bool Document::save(QString *error)
 
 bool Document::saveAs(const QString &path, QString *error)
 {
+    if (m_virtual) {
+        if (error)
+            *error = tr("Этот текст нельзя сохранить");
+        return false;
+    }
     if (!m_buffer.save(path, error))
         return false;
     m_filePath = path;
     markClean();
     return true;
+}
+
+void Document::loadVirtual(TextBuffer buffer, const QString &path)
+{
+    m_buffer = std::move(buffer);
+    m_filePath = path;
+    m_virtual = true;
+    resetHistory();
 }
 
 QString Document::displayName() const

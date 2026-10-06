@@ -1,4 +1,4 @@
-// Бенчмарк piece table (M2-1). Критерий ТЗ: вставка в середину 100 МБ < 50 мс.
+// Бенчмарк piece table. Критерий ТЗ: вставка в середину 100 МБ < 50 мс.
 // Запуск: bench_piecetable.exe [файл]; по умолчанию testdata/big.log (131 МБ).
 #include <QCoreApplication>
 #include <QElapsedTimer>

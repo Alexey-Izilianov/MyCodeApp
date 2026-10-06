@@ -7,6 +7,7 @@ Item {
     id: panel
     required property string rootPath
     signal openMatch(string path, int line, int column, int length)
+    signal leave() // Esc — обратно в редактор
 
     function focusInput(text) {
         if (text)
@@ -49,7 +50,8 @@ Item {
                 enabled: panel.rootPath !== ""
                 onTextChanged: debounce.restart()
                 onAccepted: { debounce.stop(); panel.run() }
-                Keys.onEscapePressed: { text = ""; search.clear() }
+                Keys.onEscapePressed: text !== "" ? (text = "", search.clear()) : panel.leave()
+                Keys.onDownPressed: if (results.count > 0) { results.currentIndex = 0; results.forceActiveFocus() }
             }
             IconButton {
                 id: caseButton
@@ -85,6 +87,10 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         model: search
         ScrollBar.vertical: ScrollBar {}
+        highlightMoveDuration: 0
+        Keys.onReturnPressed: currentItem.open()
+        Keys.onEscapePressed: panel.leave()
+        Keys.onUpPressed: currentIndex > 0 ? decrementCurrentIndex() : input.forceActiveFocus()
 
         delegate: Rectangle {
             id: row
@@ -97,9 +103,12 @@ Item {
             required property string preview
             required property int count
 
+            function open() { panel.openMatch(path, line, column, isFile ? 0 : length) }
+
             width: results.width
             height: 24
-            color: hover.hovered ? Theme.hover : "transparent"
+            color: ListView.isCurrentItem && results.activeFocus ? Theme.pressed
+                 : hover.hovered ? Theme.hover : "transparent"
             HoverHandler { id: hover }
 
             Row {
@@ -144,7 +153,7 @@ Item {
                 clip: true // RichText не поддерживает elide
             }
             TapHandler {
-                onTapped: panel.openMatch(row.path, row.line, row.column, row.isFile ? 0 : row.length)
+                onTapped: row.open()
             }
         }
     }

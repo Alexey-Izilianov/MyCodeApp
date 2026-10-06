@@ -1,0 +1,32 @@
+{
+    "Item": {
+        "prefix": "item",
+        "body": ["Item {", "\tid: ${1:root}", "\t$0", "}"],
+        "description": "Item"
+    },
+    "Rectangle": {
+        "prefix": "rect",
+        "body": ["Rectangle {", "\twidth: ${1:100}", "\theight: ${2:100}", "\tcolor: \"${3:#2b2d30}\"", "\t$0", "}"],
+        "description": "Rectangle"
+    },
+    "Свойство": {
+        "prefix": "prop",
+        "body": ["property ${1|int,real,string,bool,var,color|} ${2:name}: ${3:value}$0"],
+        "description": "property"
+    },
+    "Функция": {
+        "prefix": "fn",
+        "body": ["function ${1:name}(${2}) {", "\t$0", "}"],
+        "description": "function"
+    },
+    "Connections": {
+        "prefix": "conn",
+        "body": ["Connections {", "\ttarget: ${1:object}", "\tfunction on${2:Signal}(${3}) {", "\t\t$0", "\t}", "}"],
+        "description": "Connections"
+    },
+    "Timer": {
+        "prefix": "timer",
+        "body": ["Timer {", "\tinterval: ${1:1000}", "\trunning: ${2:true}", "\tonTriggered: $0", "}"],
+        "description": "Timer"
+    }
+}

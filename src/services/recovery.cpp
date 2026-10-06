@@ -1,5 +1,7 @@
 #include "recovery.h"
 
+#include "appsettings.h"
+
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDataStream>
@@ -7,7 +9,6 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QStandardPaths>
 
 #include "src/core/document.h"
 
@@ -64,7 +65,7 @@ RecoveryManager::~RecoveryManager()
 
 QString RecoveryManager::defaultDirectory()
 {
-    return QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)
+    return appDataDir()
            + QStringLiteral("/recovery");
 }
 

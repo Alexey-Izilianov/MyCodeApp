@@ -9,7 +9,7 @@ TextField {
     rightPadding: 8
     color: Theme.text
     placeholderTextColor: Theme.faint
-    selectionColor: "#2e436e"
+    selectionColor: Theme.selection
     selectedTextColor: Theme.text
     selectByMouse: true
     verticalAlignment: TextInput.AlignVCenter

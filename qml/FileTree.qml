@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
+import QtQml.Models
 import MyCodeApp
 
 // Проводник: дерево папки проекта; с текстом в фильтре — плоский список
@@ -8,14 +9,26 @@ Item {
     id: explorer
     required property Workspace workspace
     required property EditorView editor
+    required property GitService git
     signal openFile(string path)
     signal openFolderRequested()
+    signal leave() // Esc — обратно в редактор
+
+    function focusTree() {
+        if (filter.text !== "")
+            flat.forceActiveFocus()
+        else
+            tree.forceActiveFocus()
+        if (!tree.selectionModel.currentIndex.valid)
+            tree.selectionModel.setCurrentIndex(tree.index(0, 0), ItemSelectionModel.NoUpdate)
+    }
 
     readonly property bool hasFolder: workspace.rootPath !== ""
 
     ProjectModel {
         id: projectModel
         rootPath: explorer.workspace.rootPath
+        git: explorer.git
     }
 
     Column {
@@ -39,7 +52,8 @@ Item {
             x: 8
             width: parent.width - 16
             placeholderText: qsTr("Фильтр файлов")
-            Keys.onEscapePressed: { text = ""; explorer.editor.forceActiveFocus() }
+            Keys.onEscapePressed: { text = ""; explorer.leave() }
+            Keys.onDownPressed: explorer.focusTree()
             onAccepted: if (flat.count > 0) explorer.openFile(flat.model[0].path)
         }
     }
@@ -66,6 +80,18 @@ Item {
         rootIndex: projectModel.rootIndex
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar {}
+        selectionModel: ItemSelectionModel {}
+        Keys.onEscapePressed: explorer.leave()
+        Keys.onReturnPressed: {
+            const index = tree.selectionModel.currentIndex
+            const node = tree.itemAtIndex(index)
+            if (!node)
+                return
+            if (node.isDir)
+                tree.toggleExpanded(tree.rowAtIndex(index))
+            else
+                explorer.openFile(node.path)
+        }
 
         delegate: Row24 {
             id: node
@@ -76,9 +102,15 @@ Item {
             required property string display
             required property string path
             required property bool isDir
+            required property string gitStatus
+            required property bool current
 
             implicitWidth: tree.width
             highlighted: !isDir && path === explorer.editor.filePath
+            color: current && tree.activeFocus ? Theme.hover : highlighted ? Theme.pressed
+                 : hovered ? Theme.hover : "transparent"
+            border.width: current && tree.activeFocus ? 1 : 0
+            border.color: Theme.accent
 
             FileIcon {
                 id: nodeIcon
@@ -91,11 +123,23 @@ Item {
             Label {
                 anchors.left: nodeIcon.right
                 anchors.leftMargin: 6
-                anchors.right: parent.right
+                anchors.right: statusLetter.left
+                anchors.rightMargin: 6
                 anchors.verticalCenter: parent.verticalCenter
                 text: node.display
-                color: node.highlighted ? Theme.text : Theme.muted
+                color: node.gitStatus !== "" ? Theme.gitColor(node.gitStatus)
+                                             : node.highlighted ? Theme.text : Theme.muted
                 elide: Text.ElideRight
+            }
+            // У файла — буква состояния, у папки с изменениями внутри — точка
+            Label {
+                id: statusLetter
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                text: node.gitStatus === "" ? "" : node.isDir ? "•" : node.gitStatus
+                color: Theme.gitColor(node.gitStatus)
+                font.pixelSize: Theme.smallFontSize
             }
             TapHandler {
                 onTapped: node.isDir ? node.treeView.toggleExpanded(node.row) : explorer.openFile(node.path)
@@ -112,12 +156,17 @@ Item {
         // Условие на fileCount — чтобы список пересчитался после обхода папки
         model: filter.text === "" || explorer.workspace.fileCount < 0 ? [] : explorer.workspace.findFiles(filter.text, 200)
         ScrollBar.vertical: ScrollBar {}
+        highlightMoveDuration: 0
+        Keys.onReturnPressed: if (currentIndex >= 0) explorer.openFile(model[currentIndex].path)
+        Keys.onEscapePressed: explorer.leave()
+        Keys.onUpPressed: currentIndex > 0 ? decrementCurrentIndex() : filter.forceActiveFocus()
 
         delegate: Row24 {
             id: item
             required property var modelData
+            required property int index
             width: flat.width
-            highlighted: modelData.path === explorer.editor.filePath
+            highlighted: modelData.path === explorer.editor.filePath || (index === flat.currentIndex && flat.activeFocus)
 
             FileIcon {
                 id: itemIcon

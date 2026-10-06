@@ -1,6 +1,8 @@
 #include "editerview.h"
 
 #include <QClipboard>
+#include <QDateTime>
+#include <QDir>
 #include <QFileInfo>
 #include <QFontMetricsF>
 #include <QGuiApplication>
@@ -17,6 +19,7 @@
 #include <QtMath>
 #include <qsgtextnode.h>
 
+#include "src/services/palette.h"
 #include "src/services/searchengine.h"
 
 using core::Document;
@@ -24,18 +27,7 @@ using core::TextBuffer;
 namespace editing = core::editing;
 
 namespace {
-// Палитра редактора — синхронно с Theme.qml
-constexpr QRgb kBackground = 0x1e1f22;
-constexpr QRgb kText = 0xc5c8ce;
-constexpr QRgb kCurrentLine = 0x26282e;
-constexpr QRgb kSelection = 0x2e436e;
-constexpr QRgb kCaret = 0xced0d6;
-constexpr QRgb kMatch = 0x3b4a2c;
-constexpr QRgb kCurrentMatch = 0x6a5520;
-constexpr QRgb kBracket = 0x3f4552;
-constexpr QRgb kGutterText = 0x4e525a;
-constexpr QRgb kGutterCurrent = 0xa0a4ac;
-constexpr QRgb kFoldPlaceholder = 0x33363d;
+const EditorColors &colors() { return Palette::instance().editor(); }
 
 constexpr int kColumnMargin = 256;  // запас колонок при раскладке длинных строк
 constexpr int kLongLine = 10000;    // длиннее — ширину считаем без учёта табуляций
@@ -59,7 +51,6 @@ QString leadingWhitespace(const QString &line)
     return line.left(n);
 }
 
-constexpr QRgb kDiagnosticColors[3] = {0xe0605a, 0xd4a94f, 0x6c9bd2};
 
 QSGGeometryNode *createGeometry(QRgb color, QSGGeometry::DrawingMode mode)
 {
@@ -125,6 +116,11 @@ EditorView::EditorView(QQuickItem *parent)
     });
 
     m_highlighter.loadRules(QStringLiteral(":/assets/highlight.json"));
+    // Смена темы: ноды создаются заново со своими цветами
+    connect(&Palette::instance(), &Palette::changed, this, [this] {
+        m_resetScene = true;
+        markContentChanged();
+    });
     connect(&m_syntax, &SyntaxHighlighter::updated, this, &EditorView::markContentChanged);
 
     m_searchEngine = new SearchEngine(this);
@@ -196,6 +192,8 @@ void EditorView::track(Document *doc)
     connect(doc, &QObject::destroyed, this, [this, doc] {
         m_viewStates.remove(doc);
         m_tracked.remove(doc);
+        m_changeMarks.remove(doc);
+        m_diffLines.remove(doc);
     });
     connect(doc, &Document::reloaded, this, [this, doc] {
         if (doc == m_document)
@@ -271,6 +269,146 @@ void EditorView::applyTextEdits(const QVariantList &edits, int caretEdit, int ca
     afterTextChange();
 }
 
+namespace {
+QVariantMap textEdit(TextBuffer::Position from, TextBuffer::Position to, const QString &text)
+{
+    return {{QStringLiteral("startLine"), from.line}, {QStringLiteral("startColumn"), from.column},
+            {QStringLiteral("endLine"), to.line}, {QStringLiteral("endColumn"), to.column},
+            {QStringLiteral("text"), TextBuffer::normalizeNewlines(text)}};
+}
+} // namespace
+
+QString EditorView::text() const
+{
+    return m_document ? buffer().snapshot().toString() : QString();
+}
+
+void EditorView::setText(const QString &text)
+{
+    if (!m_document)
+        return;
+    const int last = buffer().lineCount() - 1;
+    applyTextEdits({textEdit({0, 0}, {last, buffer().lineLength(last)}, text)});
+}
+
+QString EditorView::selectedText() const
+{
+    return m_document ? buffer().text(primary().start(), primary().end()) : QString();
+}
+
+void EditorView::replaceSelection(const QString &text)
+{
+    if (!m_document)
+        return;
+    const QString normalized = TextBuffer::normalizeNewlines(text);
+    applyTextEdits({textEdit(primary().start(), primary().end(), normalized)}, 0, int(normalized.size()));
+}
+
+void EditorView::insertSnippet(const QString &body, int line, int fromColumn, int toColumn)
+{
+    if (!m_document || readOnly())
+        return;
+    const Caret &p = primary();
+    Cursor from = TextBuffer::clampPosition({line, fromColumn}, buffer());
+    Cursor to = TextBuffer::clampPosition({line, toColumn}, buffer());
+    const QString selected = p.hasSelection() ? buffer().text(p.start(), p.end()) : QString();
+    if (p.hasSelection()) {
+        from = p.start();
+        to = p.end();
+    }
+    // Отступ строки — на каждую строку сниппета, \t — единица отступа файла
+    QString prepared = body;
+    prepared.replace(u'\t', m_indent.unit());
+    prepared.replace(u'\n', u'\n' + leadingWhitespace(buffer().lineAt(from.line)));
+
+    const QFileInfo file(filePath());
+    const QDateTime now = QDateTime::currentDateTime();
+    const auto variables = [&](const QString &name) -> std::optional<QString> {
+        static const QHash<QString, QString> dateFormats = {
+            {QStringLiteral("CURRENT_YEAR"), QStringLiteral("yyyy")}, {QStringLiteral("CURRENT_MONTH"), QStringLiteral("MM")},
+            {QStringLiteral("CURRENT_DATE"), QStringLiteral("dd")}, {QStringLiteral("CURRENT_HOUR"), QStringLiteral("HH")},
+            {QStringLiteral("CURRENT_MINUTE"), QStringLiteral("mm")}, {QStringLiteral("CURRENT_SECOND"), QStringLiteral("ss")}};
+        if (name == QStringLiteral("TM_SELECTED_TEXT") || name == QStringLiteral("SELECTION"))
+            return selected;
+        if (name == QStringLiteral("TM_FILENAME"))
+            return file.fileName();
+        if (name == QStringLiteral("TM_FILENAME_BASE"))
+            return file.completeBaseName();
+        if (name == QStringLiteral("TM_FILEPATH"))
+            return QDir::toNativeSeparators(file.filePath());
+        if (name == QStringLiteral("TM_DIRECTORY"))
+            return QDir::toNativeSeparators(file.path());
+        if (name == QStringLiteral("CLIPBOARD"))
+            return QGuiApplication::clipboard()->text();
+        if (dateFormats.contains(name))
+            return now.toString(dateFormats.value(name));
+        return std::nullopt;
+    };
+    const core::snippet::Expansion expansion = core::snippet::expand(prepared, variables);
+
+    endSnippet();
+    const int base = buffer().offsetOf(from);
+    applyTextEdits({QVariantMap{{QStringLiteral("startLine"), from.line}, {QStringLiteral("startColumn"), from.column},
+                                {QStringLiteral("endLine"), to.line}, {QStringLiteral("endColumn"), to.column},
+                                {QStringLiteral("text"), expansion.text}}},
+                   0, 0);
+    SnippetSession session;
+    for (const core::snippet::TabStop &stop : expansion.stops) {
+        QVector<core::snippet::Range> ranges;
+        for (const core::snippet::Range &r : stop.ranges)
+            ranges.append({base + r.start, r.length});
+        session.stops.append(ranges);
+    }
+    m_snippet = session;
+    selectSnippetStop(0); // только $0 — курсор туда, и сессия сразу закончится
+    emit snippetChanged();
+}
+
+void EditorView::selectSnippetStop(int index)
+{
+    if (!m_snippet || index >= m_snippet->stops.size())
+        return endSnippet();
+    m_snippet->current = index;
+    // Зеркала одной позиции — по курсору на каждое
+    QVector<Caret> carets;
+    for (const core::snippet::Range &r : m_snippet->stops.at(index))
+        carets.append({buffer().positionOf(r.start + r.length), buffer().positionOf(r.start)});
+    setCarets(carets, 0);
+    if (index == m_snippet->stops.size() - 1)
+        endSnippet();
+}
+
+void EditorView::updateSnippet(const QVector<TextBuffer::Edit> &edits)
+{
+    for (const TextBuffer::Edit &e : edits) {
+        auto contains = [&](const core::snippet::Range &r) {
+            return e.startOffset >= r.start && e.oldEndOffset <= r.start + r.length;
+        };
+        QVector<core::snippet::Range> &current = m_snippet->stops[m_snippet->current];
+        if (std::none_of(current.cbegin(), current.cend(), contains))
+            return endSnippet(); // правка вне текущей позиции — сниппет закончен
+        const int delta = e.newEndOffset - e.oldEndOffset;
+        for (int s = 0; s < m_snippet->stops.size(); ++s) {
+            for (core::snippet::Range &r : m_snippet->stops[s]) {
+                if (s == m_snippet->current && contains(r))
+                    r.length += delta;
+                else if (r.start >= e.oldEndOffset)
+                    r.start += delta;
+                else if (r.start + r.length > e.startOffset) // была внутри заменённого
+                    r = {e.newEndOffset, 0};
+            }
+        }
+    }
+}
+
+void EditorView::endSnippet()
+{
+    if (!m_snippet)
+        return;
+    m_snippet.reset();
+    emit snippetChanged();
+}
+
 QString EditorView::wordBeforeCursor() const
 {
     if (!m_document)
@@ -321,6 +459,61 @@ void EditorView::goTo(int line, int column, int length)
     const Cursor to = TextBuffer::clampPosition({line, column + length}, buffer());
     setCarets({{to, from}}, 0);
     setScroll(m_scrollX, rowOf(from.line) * m_lineHeight - height() / 2);
+}
+
+void EditorView::setChangeMarks(QObject *object, QVector<ChangeMark> marks)
+{
+    auto *doc = qobject_cast<Document *>(object);
+    if (!doc)
+        return;
+    track(doc);
+    if (marks.isEmpty())
+        m_changeMarks.remove(doc);
+    else
+        m_changeMarks.insert(doc, std::move(marks));
+    if (doc == m_document)
+        update();
+}
+
+void EditorView::setDiffLines(QObject *object, QVector<qint8> kinds, QVector<int> numbers)
+{
+    auto *doc = qobject_cast<Document *>(object);
+    if (!doc)
+        return;
+    track(doc);
+    m_diffLines.insert(doc, {std::move(kinds), std::move(numbers)});
+    if (doc == m_document)
+        markContentChanged();
+}
+
+bool EditorView::gotoChange(int direction)
+{
+    if (!m_document)
+        return false;
+    QVector<int> starts; // по возрастанию
+    if (const auto diff = m_diffLines.constFind(m_document); diff != m_diffLines.cend()) {
+        for (int line = 0; line < diff->kinds.size(); ++line)
+            if (diff->kinds.at(line) != Unchanged && (line == 0 || diff->kinds.at(line - 1) == Unchanged))
+                starts.append(line);
+    } else {
+        for (const ChangeMark &mark : m_changeMarks.value(m_document))
+            starts.append(qMin(mark.line, buffer().lineCount() - 1));
+    }
+    if (starts.isEmpty())
+        return false;
+    const int current = primary().cursor.line;
+    int target = direction >= 0 ? starts.first() : starts.last(); // по кругу; 0 — первое
+    if (direction > 0) {
+        const auto it = std::upper_bound(starts.cbegin(), starts.cend(), current);
+        if (it != starts.cend())
+            target = *it;
+    } else if (direction < 0) {
+        const auto it = std::lower_bound(starts.cbegin(), starts.cend(), current);
+        if (it != starts.cbegin())
+            target = *(it - 1);
+    }
+    goTo(target, 0);
+    return true;
 }
 
 QVariantMap EditorView::viewStateOf(QObject *object) const
@@ -379,7 +572,7 @@ QString EditorView::language() const
     };
     if (!m_document)
         return {};
-    return names.value(QFileInfo(filePath()).suffix().toLower(), QStringLiteral("Текст"));
+    return names.value(QFileInfo(filePath()).suffix().toLower(), tr("Текст"));
 }
 
 qreal EditorView::contentHeight() const
@@ -869,6 +1062,8 @@ void EditorView::afterTextChange()
         m_folds.clear();
     for (const TextBuffer::Edit &e : edits)
         m_folds.applyEdit(e);
+    if (m_snippet)
+        updateSnippet(edits);
     if (m_syntax.hasLanguage()) {
         if (overflow)
             m_syntax.reset(buffer().snapshot());
@@ -890,6 +1085,7 @@ void EditorView::afterTextChange()
 
 void EditorView::undo()
 {
+    endSnippet();
     Document::Selections s;
     if (m_document && m_document->undo(&s)) {
         setSelections(s);
@@ -899,6 +1095,7 @@ void EditorView::undo()
 
 void EditorView::redo()
 {
+    endSnippet();
     Document::Selections s;
     if (m_document && m_document->redo(&s)) {
         setSelections(s);
@@ -1308,6 +1505,8 @@ void EditorView::keyPressEvent(QKeyEvent *event)
         }, shift);
         break;
     case Qt::Key_Escape:
+        if (m_snippet)
+            endSnippet();
         if (m_carets.size() > 1)
             singleCaret();
         else if (primary().hasSelection())
@@ -1320,6 +1519,10 @@ void EditorView::keyPressEvent(QKeyEvent *event)
         insertNewline();
         break;
     case Qt::Key_Tab:
+        if (m_snippet) {
+            selectSnippetStop(m_snippet->current + 1);
+            break;
+        }
         if (std::any_of(m_carets.cbegin(), m_carets.cend(),
                         [](const Caret &c) { return c.start().line != c.end().line; })) {
             indentLines(false);
@@ -1333,6 +1536,10 @@ void EditorView::keyPressEvent(QKeyEvent *event)
         }
         break;
     case Qt::Key_Backtab: // Shift+Tab
+        if (m_snippet) {
+            selectSnippetStop(qMax(0, m_snippet->current - 1));
+            break;
+        }
         indentLines(true);
         break;
     case Qt::Key_Backspace: erase(false, ctrl); break;
@@ -1561,12 +1768,12 @@ QVector<EditorView::StyledLine> EditorView::styledLines(int firstRow, int count,
         for (const Highlighter::Span &s : std::as_const(spans.at(i))) {
             if (s.start >= length)
                 break;
-            add(map.at(s.start), kText);
+            add(map.at(s.start), colors().text);
             const QColor color = treeSitter ? SyntaxHighlighter::color(s.rule)
                                             : m_highlighter.ruleColor(s.rule);
-            add(map.at(qMin(s.start + s.length, length)), color.isValid() ? color.rgb() : kText);
+            add(map.at(qMin(s.start + s.length, length)), color.isValid() ? color.rgb() : colors().text);
         }
-        add(int(styled.display.size()), kText);
+        add(int(styled.display.size()), colors().text);
         out.append(std::move(styled));
     }
     return out;
@@ -1596,7 +1803,7 @@ void EditorView::buildTextNodes(int firstRow, int count, int column0, int column
         }
         if (m_folds.isFolded(line.line))
             addText(QStringLiteral("…"), foldPlaceholderX(line.line) + m_charWidth, firstRow + i,
-                    kGutterCurrent);
+                    colors().gutterCurrent);
     }
 }
 
@@ -1606,9 +1813,14 @@ void EditorView::buildGutterNodes(int firstRow, const QVector<int> &lineNumbers,
     m_gutterNode->clear();
     m_gutterCurrentNode->clear();
     const qreal right = m_gutterWidth - 2 * m_charWidth;
+    const auto diff = m_diffLines.constFind(m_document);
+    const bool ownNumbers = diff != m_diffLines.cend();
     for (int i = 0; i < lineNumbers.size(); ++i) {
         const int line = lineNumbers.at(i);
-        const QString number = QString::number(line + 1);
+        const int shown = !ownNumbers ? line : line < diff->numbers.size() ? diff->numbers.at(line) : -1;
+        if (shown < 0)
+            continue;
+        const QString number = QString::number(shown + 1);
         QTextLayout layout(number, m_font);
         layout.beginLayout();
         layout.createLine();
@@ -1639,6 +1851,46 @@ void EditorView::buildFoldMarkers(int firstRow, const QVector<int> &lineNumbers)
     setVertices(m_foldedMarkers, closed);
 }
 
+QVector<QPair<QRectF, QColor>> EditorView::changeRects(int firstLine, int lastLine) const
+{
+    // В координатах gutter (до прокрутки): полоса между номерами и маркерами сворачивания
+    QVector<QPair<QRectF, QColor>> rects;
+    const qreal x = m_gutterWidth - 2 * m_charWidth + 3;
+    for (const ChangeMark &mark : m_changeMarks.value(m_document)) {
+        if (mark.kind == ChangeMark::Removed) {
+            if (mark.line < firstLine || mark.line > lastLine + 1)
+                continue;
+            const int line = qMin(mark.line, buffer().lineCount() - 1);
+            if (m_folds.isHidden(line))
+                continue;
+            const qreal y = (rowOf(line) + (mark.line > line ? 1 : 0)) * m_lineHeight;
+            rects.append({QRectF(x - 2, y - 2, 7, 4), QColor(colors().changeRemoved)});
+            continue;
+        }
+        const QColor color(mark.kind == ChangeMark::Added ? colors().changeAdded : colors().changeModified);
+        for (int line = qMax(mark.line, firstLine); line <= qMin(mark.line + mark.count - 1, lastLine); ++line)
+            if (!m_folds.isHidden(line))
+                rects.append({QRectF(x, rowOf(line) * m_lineHeight, 3, m_lineHeight), color});
+    }
+    return rects;
+}
+
+QVector<QPair<QRectF, QColor>> EditorView::diffRects(int firstRow, const QVector<int> &lineNumbers) const
+{
+    QVector<QPair<QRectF, QColor>> rects;
+    const auto diff = m_diffLines.constFind(m_document);
+    if (diff == m_diffLines.cend())
+        return rects;
+    for (int i = 0; i < lineNumbers.size(); ++i) {
+        const int line = lineNumbers.at(i);
+        const qint8 kind = line < diff->kinds.size() ? diff->kinds.at(line) : Unchanged;
+        if (kind != Unchanged)
+            rects.append({QRectF(0, (firstRow + i) * m_lineHeight - m_scrollY, width(), m_lineHeight),
+                          QColor(kind == Inserted ? colors().diffInserted : colors().diffDeleted)});
+    }
+    return rects;
+}
+
 void EditorView::setRects(QSGNode *layer, QVector<QSGSimpleRectNode *> &pool,
                           const QVector<QPair<QRectF, QColor>> &rects)
 {
@@ -1660,11 +1912,18 @@ void EditorView::setRects(QSGNode *layer, QVector<QSGSimpleRectNode *> &pool,
 
 QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
+    if (m_resetScene) {
+        m_resetScene = false;
+        delete oldNode;
+        oldNode = nullptr;
+    }
     if (!oldNode) {
         // Сцена создаётся заново (в т.ч. после потери графического контекста):
         // старые ноды удалены scene graph'ом — забываем указатели.
         m_textNodes.clear();
         m_currentLinePool.clear();
+        m_diffPool.clear();
+        m_changePool.clear();
         m_selectionPool.clear();
         m_matchPool.clear();
         m_bracketPool.clear();
@@ -1673,8 +1932,10 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_builtFirstRow = -1;
 
         m_root = new QSGNode;
-        m_background = new QSGSimpleRectNode({}, QColor(kBackground));
+        m_background = new QSGSimpleRectNode({}, QColor(colors().background));
+        m_diffLayer = new QSGNode;
         m_currentLineLayer = new QSGNode;
+        m_changeLayer = new QSGNode;
         m_textClip = new QSGClipNode;
         m_textClip->setIsRectangular(true);
         m_textTransform = new QSGTransformNode;
@@ -1687,14 +1948,15 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_gutterTransform = new QSGTransformNode;
         m_gutterNode = window()->createTextNode();
         m_gutterNode->setRenderType(QSGTextNode::NativeRendering);
-        m_gutterNode->setColor(QColor(kGutterText));
+        m_gutterNode->setColor(QColor(colors().gutterText));
         m_gutterCurrentNode = window()->createTextNode();
         m_gutterCurrentNode->setRenderType(QSGTextNode::NativeRendering);
-        m_gutterCurrentNode->setColor(QColor(kGutterCurrent));
-        m_foldMarkers = createGeometry(kGutterText, QSGGeometry::DrawTriangles);
-        m_foldedMarkers = createGeometry(kGutterCurrent, QSGGeometry::DrawTriangles);
+        m_gutterCurrentNode->setColor(QColor(colors().gutterCurrent));
+        m_foldMarkers = createGeometry(colors().gutterText, QSGGeometry::DrawTriangles);
+        m_foldedMarkers = createGeometry(colors().gutterCurrent, QSGGeometry::DrawTriangles);
 
         m_root->appendChildNode(m_background);
+        m_root->appendChildNode(m_diffLayer);
         m_root->appendChildNode(m_currentLineLayer);
         m_root->appendChildNode(m_textClip);
         m_textClip->appendChildNode(m_textTransform);
@@ -1704,7 +1966,7 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_textTransform->appendChildNode(m_foldLayer);
         m_textTransform->appendChildNode(m_textLayer);
         for (int i = 0; i < 3; ++i) {
-            m_diagnosticNodes[i] = createGeometry(kDiagnosticColors[i], QSGGeometry::DrawLines);
+            m_diagnosticNodes[i] = createGeometry(colors().diagnostics[i], QSGGeometry::DrawLines);
             m_textTransform->appendChildNode(m_diagnosticNodes[i]);
         }
         m_textTransform->appendChildNode(m_caretLayer);
@@ -1713,6 +1975,7 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_gutterTransform->appendChildNode(m_gutterCurrentNode);
         m_gutterTransform->appendChildNode(m_foldMarkers);
         m_gutterTransform->appendChildNode(m_foldedMarkers);
+        m_gutterTransform->appendChildNode(m_changeLayer);
     }
 
     m_background->setRect(boundingRect());
@@ -1727,6 +1990,8 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         for (QSGGeometryNode *node : m_diagnosticNodes)
             setVertices(node, {});
         for (auto [layer, pool] : {std::pair{m_currentLineLayer, &m_currentLinePool},
+                                   std::pair{m_diffLayer, &m_diffPool},
+                                   std::pair{m_changeLayer, &m_changePool},
                                    std::pair{m_selectionLayer, &m_selectionPool},
                                    std::pair{m_matchLayer, &m_matchPool},
                                    std::pair{m_bracketLayer, &m_bracketPool},
@@ -1795,8 +2060,10 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     for (int line : std::as_const(caretLines))
         if (visibleLine(line))
             currentLines.append({QRectF(0, yOf(line) - m_scrollY, width(), m_lineHeight),
-                                 QColor(kCurrentLine)});
+                                 QColor(colors().currentLine)});
     setRects(m_currentLineLayer, m_currentLinePool, currentLines);
+    setRects(m_diffLayer, m_diffPool, diffRects(firstRow, lineNumbers));
+    setRects(m_changeLayer, m_changePool, changeRects(firstLine, lastLine));
 
     // Выделения и каретки — в координатах текста, только видимые ряды
     QVector<QPair<QRectF, QColor>> selection, carets;
@@ -1812,12 +2079,12 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
                 const qreal x1 = line == b.line ? xOf(b)
                                                 : xOf({line, buffer().lineLength(line)}) + m_charWidth; // + перевод строки
                 selection.append({QRectF(x0, row * m_lineHeight, qMax(m_charWidth, x1 - x0), m_lineHeight),
-                                  QColor(kSelection)});
+                                  QColor(colors().selection)});
             }
         }
         if (caretOn && visibleLine(c.cursor.line))
             carets.append({QRectF(xOf(c.cursor) - 1, yOf(c.cursor.line) + 2, 2, m_lineHeight - 4),
-                           QColor(kCaret)});
+                           QColor(colors().caret)});
     }
     setRects(m_selectionLayer, m_selectionPool, selection);
     setRects(m_caretLayer, m_caretPool, carets);
@@ -1825,7 +2092,7 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     QVector<QPair<QRectF, QColor>> brackets;
     for (const Cursor b : std::as_const(m_brackets))
         if (visibleLine(b.line))
-            brackets.append({QRectF(xOf(b), yOf(b.line), m_charWidth, m_lineHeight), QColor(kBracket)});
+            brackets.append({QRectF(xOf(b), yOf(b.line), m_charWidth, m_lineHeight), QColor(colors().bracket)});
     setRects(m_bracketLayer, m_bracketPool, brackets);
 
     QVector<QPair<QRectF, QColor>> placeholders;
@@ -1833,7 +2100,7 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         if (m_folds.isFolded(lineNumbers.at(i)))
             placeholders.append({QRectF(foldPlaceholderX(lineNumbers.at(i)), (firstRow + i) * m_lineHeight + 3,
                                         3 * m_charWidth, m_lineHeight - 6),
-                                 QColor(kFoldPlaceholder)});
+                                 QColor(colors().foldPlaceholder)});
     setRects(m_foldLayer, m_foldPool, placeholders);
 
     QVector<QPair<QRectF, QColor>> matches;
@@ -1843,7 +2110,7 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             continue;
         const qreal x0 = xOf({m.line, m.column}), x1 = xOf({m.line, m.column + m.length});
         matches.append({QRectF(x0, yOf(m.line), qMax(m_charWidth, x1 - x0), m_lineHeight),
-                        QColor(i == m_currentMatch ? kCurrentMatch : kMatch)});
+                        QColor(i == m_currentMatch ? colors().currentMatch : colors().match)});
     }
     setRects(m_matchLayer, m_matchPool, matches);
 

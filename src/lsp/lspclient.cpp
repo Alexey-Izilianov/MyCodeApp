@@ -114,7 +114,7 @@ void LspClient::start()
 int LspClient::request(const QString &method, const QJsonObject &params, Callback callback)
 {
     if (m_state == State::NotFound || m_state == State::Failed) {
-        callback({}, errorObject(QStringLiteral("сервер недоступен")));
+        callback({}, errorObject(tr("Сервер недоступен")));
         return 0;
     }
     const int id = m_nextId++;
@@ -251,7 +251,7 @@ void LspClient::processFinished()
 {
     const auto pending = std::exchange(m_pending, {}); // колбэки могут слать новые запросы
     for (const Callback &callback : pending)
-        callback({}, errorObject(QStringLiteral("сервер завершился")));
+        callback({}, errorObject(tr("Сервер завершился")));
     m_queue.clear();
     m_progressTitles.clear();
     if (m_process) {

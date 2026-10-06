@@ -47,7 +47,10 @@ public:
     QString filePath() const { return m_filePath; }
     QString displayName() const;
     bool isDirty() const { return m_dirty; }
-    bool isReadOnly() const { return m_buffer.isMapped(); }
+    bool isReadOnly() const { return m_virtual || m_buffer.isMapped(); }
+    // Текст не с диска (просмотр изменений): только чтение, путь — для подсветки.
+    // Буфер готовится в фоне, сюда передаётся целиком
+    void loadVirtual(TextBuffer buffer, const QString &path);
     // Файл на диске поменяли не мы (время или размер не те, что при загрузке/сохранении)
     bool changedOnDisk() const;
     // Перечитать с диска; история правок сбрасывается
@@ -121,6 +124,7 @@ private:
     QString m_filePath;
     TextBuffer m_buffer;
     QAtomicInteger<bool> m_loading{false};
+    bool m_virtual = false;
 
     QVector<Step> m_history;
     int m_index = 0;      // сколько шагов истории применено
