@@ -1,6 +1,7 @@
 // tree-sitter напрямую: загрузка грамматик, разбор, инкрементальный пересчёт
 // и скорость (полный разбор ~1 МБ против правки строки).
 #include <QElapsedTimer>
+#include "perfcheck.h"
 #include <QtTest>
 #include <tree_sitter/api.h>
 
@@ -111,7 +112,7 @@ void TreeSitterTest::incrementalEditIsFast()
     QVERIFY(updated != nullptr);
 
     // Правка строки — доли миллисекунды, с запасом
-    QVERIFY2(incMs < 100, qPrintable(QStringLiteral("incremental: %1 ms").arg(incMs)));
+    PERF_VERIFY2(incMs < 100, qPrintable(QStringLiteral("incremental: %1 ms").arg(incMs)));
 
     ts_tree_delete(updated);
     ts_tree_delete(p.tree);
@@ -131,7 +132,7 @@ void TreeSitterTest::parseSpeedOneMb()
     const qint64 fullMs = timer.elapsed();
     QVERIFY(p.tree != nullptr);
     // Полный пересчёт файла 1 МБ < 100 мс
-    QVERIFY2(fullMs < 1000, qPrintable(QStringLiteral("full: %1 ms").arg(fullMs)));
+    PERF_VERIFY2(fullMs < 1000, qPrintable(QStringLiteral("full: %1 ms").arg(fullMs)));
 
     // Правка одной строки в середине: вставка символа в имя функции
     const int editOffset = src.indexOf("int func", src.size() / 2) + 8;
@@ -157,7 +158,7 @@ void TreeSitterTest::parseSpeedOneMb()
                  qPrintable(QStringLiteral("changed range %1..%2")
                                 .arg(ranges[i].start_byte).arg(ranges[i].end_byte)));
     free(ranges);
-    QVERIFY2(incMs < fullMs, qPrintable(QStringLiteral("edit: %1 ms").arg(incMs)));
+    PERF_VERIFY2(incMs < fullMs, qPrintable(QStringLiteral("edit: %1 ms").arg(incMs)));
 
     qInfo("parse 1 MB: full %lld ms, incremental edit %lld ms, changed ranges %u",
           fullMs, incMs, count);

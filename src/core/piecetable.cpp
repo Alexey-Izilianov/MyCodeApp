@@ -9,6 +9,8 @@ int PieceTable::Core::pieceFor(int offset) const
 {
     // Первый кусок, чей конец > offset (offsets[0] == 0 при непустом тексте).
     // offset == length() даёт pieces.size() — метку «за концом» для вставки.
+    if (offsets.isEmpty()) // пустой текст: cbegin() + 1 вышел бы за конец (на libc++ — падение)
+        return 0;
     const auto it = std::upper_bound(offsets.cbegin() + 1, offsets.cend(), offset);
     return int(it - offsets.cbegin()) - 1;
 }

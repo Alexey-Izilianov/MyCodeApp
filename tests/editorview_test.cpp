@@ -1,4 +1,5 @@
 #include <QClipboard>
+#include "perfcheck.h"
 #include <QGuiApplication>
 #include <QQuickWindow>
 #include <QTemporaryDir>
@@ -491,7 +492,7 @@ void EditorViewTest::longLineTypingIsFast()
     typeText("abc(def)ghij\"k\"lmnop");
     const qint64 ms = timer.elapsed();
     QCOMPARE(m_view->cursorColumn(), 2 * 1024 * 1024 + 20);
-    QVERIFY2(ms < 1000, qPrintable(QStringLiteral("20 символов: %1 мс").arg(ms)));
+    PERF_VERIFY2(ms < 1000, qPrintable(QStringLiteral("20 символов: %1 мс").arg(ms)));
     qInfo("typing 20 chars at the end of a 2 MB line: %lld ms", ms);
 }
 

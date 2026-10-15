@@ -1,4 +1,5 @@
 #include <QSignalSpy>
+#include "perfcheck.h"
 #include <QTemporaryDir>
 #include <QtTest>
 #include "src/core/document.h"
@@ -148,7 +149,7 @@ void DocumentTest::thousandUndosAreFast()
         QVERIFY(doc.redo(&sel));
     const qint64 redoMs = timer.elapsed();
     QCOMPARE(doc.buffer().lineCount(), 1001);
-    QVERIFY2(undoMs < 100 && redoMs < 100,
+    PERF_VERIFY2(undoMs < 100 && redoMs < 100,
              qPrintable(QStringLiteral("undo %1 ms, redo %2 ms").arg(undoMs).arg(redoMs)));
 }
 
@@ -269,7 +270,7 @@ void DocumentTest::thousandCaretsAreFast()
     const qint64 undoMs = timer.elapsed();
 
     QCOMPARE(doc.buffer().lineAt(9990), QStringLiteral("line 9990"));
-    QVERIFY2(editMs < 50 && undoMs < 50,
+    PERF_VERIFY2(editMs < 50 && undoMs < 50,
              qPrintable(QStringLiteral("edit %1 ms, undo %2 ms").arg(editMs).arg(undoMs)));
 }
 
