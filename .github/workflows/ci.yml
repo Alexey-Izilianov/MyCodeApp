@@ -7,7 +7,7 @@ on:
   pull_request:
 
 env:
-  QT_VERSION: '6.11.*'
+  QT_VERSION: '6.11.2' # маска 6.11.* берёт новейший выпуск, которого может ещё не быть в зеркале
 
 jobs:
   build:
@@ -59,8 +59,12 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run -a ctest --output-on-failure
-          else
-            ctest --output-on-failure
+          elif ! ctest --output-on-failure; then
+            # стек упавших тестов для разбора (на macOS они падают без вывода)
+            for t in $(ctest --rerun-failed -N | sed -n 's/.*Test *#[0-9]*: *//p'); do
+              lldb --batch -o run -k bt -k quit -- ./test_$t || true
+            done
+            exit 1
           fi
 
       - name: Package (Windows)

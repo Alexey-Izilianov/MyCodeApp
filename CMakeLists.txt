@@ -93,6 +93,9 @@ set(USE_NTLMCLIENT OFF CACHE BOOL "" FORCE)
 set(USE_BUNDLED_ZLIB ON CACHE STRING "" FORCE)
 set(REGEX_BACKEND builtin CACHE STRING "" FORCE)
 set(CMAKE_C_STANDARD 11 CACHE STRING "" FORCE) # иначе libgit2 оставляет в кэше C90 для всех C-целей
+# libgit2 выключает расширения, а в строгом -std=c11 glibc прячет st_mtim — проверка
+# наносекунд в stat проваливается и сборка падает на Linux. gnu11 их возвращает
+set(CMAKE_C_EXTENSIONS ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(libgit2)
 
 set(SYNTAX_SOURCES
