@@ -2,6 +2,7 @@
     "name": "Бумага (светлая)",
     "nameEn": "Paper (light)",
     "ui": {
+        "ground": "#e6e7eb",
         "editor": "#ffffff",
         "chrome": "#f2f3f5",
         "popup": "#ffffff",

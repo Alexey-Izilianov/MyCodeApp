@@ -7,6 +7,7 @@ import MyCodeApp
 QtObject {
     readonly property var ui: ThemeManager.ui
 
+    readonly property color ground: ui.ground // подложка окна под «островами» панелей
     readonly property color editor: ui.editor
     readonly property color chrome: ui.chrome
     readonly property color popup: ui.popup
@@ -41,4 +42,7 @@ QtObject {
     readonly property string fontFamily: "Segoe UI"
     readonly property int fontSize: 13
     readonly property int smallFontSize: 12
+
+    readonly property int islandGap: 6
+    readonly property int islandRadius: 8
 }

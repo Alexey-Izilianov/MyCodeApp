@@ -5,44 +5,55 @@
 #include <QSaveFile>
 #include <QStringDecoder>
 #include <QStringEncoder>
+#include <algorithm>
+#include <iterator>
 #include <limits>
 #include <utility>
-#ifdef Q_OS_WIN
-#include <windows.h>
-#endif
 
 namespace core {
 
 namespace {
-#ifdef Q_OS_WIN
-// QStringConverter без ICU знает только UTF/latin1/system, поэтому cp1251
-// делаем через WinAPI (кодировка 1251).
+// Windows-1251 своей таблицей: QStringConverter без ICU её не знает, а ICU
+// есть не во всех сборках Qt. Байты 0x00–0x7F — ASCII, 0xC0–0xFF — А–я.
+constexpr char16_t kCp1251High[64] = {
+    0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, // 0x80
+    0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F,
+    0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, // 0x90
+    0x0098, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F,
+    0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7, // 0xA0
+    0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407,
+    0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7, // 0xB0
+    0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457,
+};
+
 QString cp1251ToString(const QByteArray &raw)
 {
-    if (raw.isEmpty())
-        return {};
-    const int len = MultiByteToWideChar(1251, 0, raw.constData(), raw.size(),
-                                        nullptr, 0);
-    QString out(len, QChar());
-    if (len > 0)
-        MultiByteToWideChar(1251, 0, raw.constData(), raw.size(),
-                            reinterpret_cast<wchar_t *>(out.data()), len);
+    QString out(raw.size(), Qt::Uninitialized);
+    QChar *dst = out.data();
+    for (const char ch : raw) {
+        const auto b = static_cast<unsigned char>(ch);
+        *dst++ = b < 0x80 ? QChar(b) : b < 0xC0 ? QChar(kCp1251High[b - 0x80]) : QChar(char16_t(0x0410 + b - 0xC0));
+    }
     return out;
 }
 
 QByteArray stringToCp1251(const QString &s)
 {
-    if (s.isEmpty())
-        return {};
-    const int len = WideCharToMultiByte(1251, 0, reinterpret_cast<const wchar_t *>(s.constData()), s.size(),
-                                        nullptr, 0, nullptr, nullptr);
-    QByteArray out(len, 0);
-    if (len > 0)
-        WideCharToMultiByte(1251, 0, reinterpret_cast<const wchar_t *>(s.constData()), s.size(),
-                            out.data(), len, nullptr, nullptr);
+    QByteArray out(s.size(), Qt::Uninitialized);
+    char *dst = out.data();
+    for (const QChar c : s) {
+        const char16_t u = c.unicode();
+        char byte = '?'; // символа нет в кодировке
+        if (u < 0x80)
+            byte = char(u);
+        else if (u >= 0x0410 && u <= 0x044F)
+            byte = char(0xC0 + u - 0x0410);
+        else if (const auto *it = std::find(std::begin(kCp1251High), std::end(kCp1251High), u); it != std::end(kCp1251High))
+            byte = char(0x80 + (it - std::begin(kCp1251High)));
+        *dst++ = byte;
+    }
     return out;
 }
-#endif
 
 // Ручная проверка: QStringDecoder::hasError() в этой конфигурации не
 // срабатывает (invalid-байты молча заменяются U+FFFD), надёжнее посчитать сам.
@@ -138,11 +149,7 @@ bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
         break;
     }
     case Encoding::Cp1251:
-#ifdef Q_OS_WIN
         text = cp1251ToString(raw);
-#else
-        text = QStringDecoder("windows-1251")(raw); // Qt с ICU
-#endif
         break;
     case Encoding::Latin1: {
         text = QString::fromLatin1(raw);
@@ -212,11 +219,7 @@ bool TextBuffer::save(const QString &path, QString *error)
         encoded = QByteArray("\xFE\xFF", 2) + QStringEncoder(QStringConverter::Utf16BE)(text);
         break;
     case Encoding::Cp1251:
-#ifdef Q_OS_WIN
         encoded = stringToCp1251(text);
-#else
-        encoded = QStringEncoder("windows-1251")(text);
-#endif
         break;
     case Encoding::Latin1:
         encoded = text.toLatin1();

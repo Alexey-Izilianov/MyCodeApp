@@ -2,6 +2,7 @@
     "name": "Графит (тёмная)",
     "nameEn": "Graphite (dark)",
     "ui": {
+        "ground": "#141518",
         "editor": "#1e1f22",
         "chrome": "#2b2d30",
         "popup": "#2b2d30",

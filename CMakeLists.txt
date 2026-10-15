@@ -6,6 +6,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # для clangd
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Quick Gui Network Test LinguistTools)
+set(QT_NO_PRIVATE_MODULE_WARNING ON)
+find_package(Qt6 REQUIRED COMPONENTS CorePrivate GuiPrivate QuickPrivate) # для QWindowKit
 
 qt_standard_project_setup(REQUIRES 6.10)
 
@@ -41,7 +43,21 @@ FetchContent_Declare(tree_sitter_qmljs
     SOURCE_SUBDIR _no_cmake)
 FetchContent_MakeAvailable(tree_sitter tree_sitter_cpp tree_sitter_python tree_sitter_qmljs)
 
+# Окно без системной рамки со своей строкой заголовка (прилипание к краям и Snap
+# Layouts сохраняются). Статически — без лишних DLL рядом с exe.
+set(QWINDOWKIT_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(QWINDOWKIT_BUILD_WIDGETS OFF CACHE BOOL "" FORCE)
+set(QWINDOWKIT_BUILD_QUICK ON CACHE BOOL "" FORCE)
+set(QWINDOWKIT_INSTALL OFF CACHE BOOL "" FORCE)
+set(QWINDOWKIT_ENABLE_STYLE_AGENT OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(qwindowkit
+    GIT_REPOSITORY https://github.com/stdware/qwindowkit.git
+    GIT_TAG 1.5.0
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(qwindowkit)
+
 add_library(ts_runtime STATIC ${tree_sitter_SOURCE_DIR}/lib/src/lib.c)
+target_compile_definitions(ts_runtime PRIVATE _POSIX_C_SOURCE=200112L _DEFAULT_SOURCE _DARWIN_C_SOURCE)
 target_include_directories(ts_runtime PUBLIC
     ${tree_sitter_SOURCE_DIR}/lib/include
     ${tree_sitter_SOURCE_DIR}/lib/src)
@@ -99,6 +115,9 @@ qt_add_executable(appMyCodeApp
     main.cpp
     ${CORE_SOURCES}
 )
+if(WIN32)
+    target_sources(appMyCodeApp PRIVATE assets/icon/app.rc)
+endif()
 
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(appMyCodeApp
@@ -112,6 +131,8 @@ qt_add_qml_module(appMyCodeApp
         qml/Sidebar.qml qml/QuickOpen.qml qml/ReloadDialog.qml
         qml/CompletionPopup.qml qml/HoverPopup.qml qml/BottomPanel.qml qml/RenamePopup.qml
         qml/GitPanel.qml qml/DiffView.qml qml/Command.qml qml/SettingsDialog.qml qml/PluginsPage.qml qml/GoToLinePopup.qml qml/AboutDialog.qml
+        qml/TitleBar.qml qml/WindowButton.qml qml/ActivityBar.qml qml/ActivityButton.qml
+        qml/LineIcon.qml qml/IslandCorners.qml
         SOURCES src/gui/editerview.h src/gui/editerview.cpp
                 src/gui/minimap.h src/gui/minimap.cpp
                 src/services/workspace.h src/services/workspace.cpp
@@ -143,7 +164,7 @@ target_sources(appMyCodeApp PRIVATE
 )
 
 target_link_libraries(appMyCodeApp
-    PRIVATE Qt6::Quick Qt6::Network spdlog::spdlog ${SYNTAX_LIBS} libgit2package
+    PRIVATE Qt6::Quick Qt6::Network spdlog::spdlog ${SYNTAX_LIBS} libgit2package QWindowKit::Quick
 )
 target_include_directories(appMyCodeApp SYSTEM PRIVATE ${libgit2_SOURCE_DIR}/include)
 target_compile_definitions(appMyCodeApp PRIVATE APP_VERSION="${PROJECT_VERSION}")
@@ -170,6 +191,7 @@ qt_add_resources(appMyCodeApp "app_assets"
     FILES assets/highlight.json assets/lsp.json ${SYNTAX_QUERIES}
           assets/themes/dark.json assets/themes/light.json
           assets/snippets/cpp.json assets/snippets/python.json assets/snippets/qml.json
+          assets/icon/app-256.png
 )
 
 set_target_properties(appMyCodeApp PROPERTIES
@@ -262,14 +284,6 @@ qt_add_executable(test_recovery ${CORE_SOURCES}
 target_include_directories(test_recovery PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_recovery PRIVATE Qt6::Test)
 add_test(NAME recovery COMMAND test_recovery)
-
-# Бенчмарк piece table (запуск вручную): bench_piecetable.exe <файл>
-qt_add_executable(bench_piecetable
-    src/core/piecetable.h src/core/piecetable.cpp src/core/mappedtext.h src/core/mappedtext.cpp
-    tests/bench_piecetable.cpp)
-target_include_directories(bench_piecetable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(bench_piecetable PRIVATE Qt6::Core)
-set_target_properties(bench_piecetable PROPERTIES WIN32_EXECUTABLE FALSE)
 
 qt_add_executable(test_document
     src/core/document.h src/core/document.cpp

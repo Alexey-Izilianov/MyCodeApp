@@ -7,8 +7,8 @@ Rectangle {
     required property DocumentManager manager
     signal closeRequested(int index)
 
-    implicitHeight: 34
-    color: Theme.chrome
+    implicitHeight: 36
+    color: Theme.editor
 
     Rectangle {
         anchors.bottom: parent.bottom
@@ -20,7 +20,10 @@ Rectangle {
     ListView {
         id: list
         anchors.fill: parent
+        anchors.leftMargin: 4
+        anchors.rightMargin: 4
         orientation: ListView.Horizontal
+        spacing: 2
         boundsBehavior: Flickable.StopAtBounds
         clip: true
         model: strip.manager.tabs
@@ -28,7 +31,7 @@ Rectangle {
         highlightFollowsCurrentItem: false
         onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
 
-        delegate: Rectangle {
+        delegate: Item {
             id: tab
             required property int index
             required property var modelData
@@ -37,13 +40,21 @@ Rectangle {
 
             width: Math.min(240, Math.max(96, title.implicitWidth + 52))
             height: list.height
-            color: active ? Theme.editor : (mouse.containsMouse ? Theme.hover : "transparent")
+
+            Rectangle {
+                anchors.fill: parent
+                anchors.topMargin: 4
+                anchors.bottomMargin: 4
+                radius: 6
+                color: Theme.hover
+                opacity: tab.active ? 1 : mouse.containsMouse ? 0.5 : 0
+            }
 
             Label {
                 id: title
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.left: parent.left
-                anchors.leftMargin: 14
+                anchors.leftMargin: 12
                 anchors.right: closeButton.left
                 anchors.rightMargin: 6
                 text: tab.modelData.name
@@ -85,20 +96,6 @@ Rectangle {
                     hoverEnabled: true
                     onClicked: strip.closeRequested(tab.index)
                 }
-            }
-
-            Rectangle { // правая граница вкладки
-                anchors.right: parent.right
-                width: 1
-                height: parent.height
-                color: Theme.border
-            }
-            Rectangle { // акцент активной вкладки
-                anchors.bottom: parent.bottom
-                width: parent.width - 1
-                height: 2
-                visible: tab.active
-                color: Theme.accent
             }
 
             MouseArea {

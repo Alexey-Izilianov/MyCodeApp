@@ -30,19 +30,47 @@
     </message>
 </context>
 <context>
+    <name>ActivityBar</name>
+    <message>
+        <location filename="../qml/ActivityBar.qml" line="18"/>
+        <source>Проводник</source>
+        <translation>Explorer</translation>
+    </message>
+    <message>
+        <location filename="../qml/ActivityBar.qml" line="19"/>
+        <source>Поиск по проекту</source>
+        <translation>Search in Project</translation>
+    </message>
+    <message>
+        <location filename="../qml/ActivityBar.qml" line="20"/>
+        <source>Git</source>
+        <translation>Git</translation>
+    </message>
+    <message>
+        <location filename="../qml/ActivityBar.qml" line="44"/>
+        <source>Плагины</source>
+        <translation>Plugins</translation>
+    </message>
+    <message>
+        <location filename="../qml/ActivityBar.qml" line="45"/>
+        <source>Настройки</source>
+        <translation>Settings</translation>
+    </message>
+</context>
+<context>
     <name>BottomPanel</name>
     <message>
-        <location filename="../qml/BottomPanel.qml" line="50"/>
+        <location filename="../qml/BottomPanel.qml" line="45"/>
         <source>Проблемы: %1</source>
         <translation>Problems: %1</translation>
     </message>
     <message>
-        <location filename="../qml/BottomPanel.qml" line="51"/>
+        <location filename="../qml/BottomPanel.qml" line="46"/>
         <source>Ссылки: %1</source>
         <translation>References: %1</translation>
     </message>
     <message>
-        <location filename="../qml/BottomPanel.qml" line="84"/>
+        <location filename="../qml/BottomPanel.qml" line="79"/>
         <source>Закрыть</source>
         <translation>Close</translation>
     </message>
@@ -453,357 +481,357 @@
 <context>
     <name>Main</name>
     <message>
-        <location filename="../Main.qml" line="200"/>
+        <location filename="../Main.qml" line="209"/>
         <source>Файл</source>
         <translation>File</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="201"/>
+        <location filename="../Main.qml" line="210"/>
         <source>Открыть…</source>
         <translation>Open…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="202"/>
+        <location filename="../Main.qml" line="211"/>
         <source>Открыть папку…</source>
         <translation>Open folder…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="203"/>
+        <location filename="../Main.qml" line="212"/>
         <source>Закрыть папку</source>
         <translation>Close folder</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="206"/>
+        <location filename="../Main.qml" line="215"/>
         <source>Сохранить</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="213"/>
+        <location filename="../Main.qml" line="222"/>
         <source>Закрыть вкладку</source>
         <translation>Close tab</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="218"/>
+        <location filename="../Main.qml" line="227"/>
         <source>Настройки…</source>
         <translation>Settings…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="220"/>
+        <location filename="../Main.qml" line="229"/>
         <source>Убрать из «Открыть с помощью»</source>
         <translation>Remove from “Open with”</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="220"/>
+        <location filename="../Main.qml" line="229"/>
         <source>Добавить в «Открыть с помощью»</source>
         <translation>Add to “Open with”</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="225"/>
+        <location filename="../Main.qml" line="234"/>
         <source>Не удалось изменить реестр</source>
         <translation>Could not change the registry</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="226"/>
+        <location filename="../Main.qml" line="235"/>
         <source>MyCodeApp добавлен в «Открыть с помощью» и меню папок</source>
         <translation>MyCodeApp was added to “Open with” and the folder menu</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="227"/>
+        <location filename="../Main.qml" line="236"/>
         <source>MyCodeApp убран из меню Проводника</source>
         <translation>MyCodeApp was removed from Explorer menus</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="231"/>
+        <location filename="../Main.qml" line="240"/>
         <source>Выход</source>
         <translation>Exit</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="234"/>
+        <location filename="../Main.qml" line="243"/>
         <source>Правка</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="235"/>
+        <location filename="../Main.qml" line="244"/>
         <source>Отменить</source>
         <translation>Undo</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="236"/>
+        <location filename="../Main.qml" line="245"/>
         <source>Повторить</source>
         <translation>Redo</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="238"/>
+        <location filename="../Main.qml" line="247"/>
         <source>Вырезать</source>
         <translation>Cut</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="239"/>
+        <location filename="../Main.qml" line="248"/>
         <source>Копировать</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="240"/>
+        <location filename="../Main.qml" line="249"/>
         <source>Вставить</source>
         <translation>Paste</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="242"/>
+        <location filename="../Main.qml" line="251"/>
         <source>Выделить всё</source>
         <translation>Select all</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="244"/>
+        <location filename="../Main.qml" line="253"/>
         <source>Выделить следующее вхождение</source>
         <translation>Select next occurrence</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="245"/>
+        <location filename="../Main.qml" line="254"/>
         <source>Добавить курсор выше</source>
         <translation>Add cursor above</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="246"/>
+        <location filename="../Main.qml" line="255"/>
         <source>Добавить курсор ниже</source>
         <translation>Add cursor below</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="249"/>
+        <location filename="../Main.qml" line="258"/>
         <source>Поиск</source>
         <translation>Search</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="250"/>
+        <location filename="../Main.qml" line="259"/>
         <source>Найти…</source>
         <translation>Find…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="251"/>
+        <location filename="../Main.qml" line="260"/>
         <source>Следующее совпадение</source>
         <translation>Next match</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="252"/>
+        <location filename="../Main.qml" line="261"/>
         <source>Предыдущее совпадение</source>
         <translation>Previous match</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="254"/>
+        <location filename="../Main.qml" line="263"/>
         <source>Перейти к строке…</source>
         <translation>Go to line…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="255"/>
+        <location filename="../Main.qml" line="264"/>
         <source>Перейти к файлу…</source>
         <translation>Go to file…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="256"/>
+        <location filename="../Main.qml" line="265"/>
         <source>Найти в проекте…</source>
         <translation>Find in project…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="259"/>
+        <location filename="../Main.qml" line="268"/>
         <source>Код</source>
         <translation>Code</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="260"/>
+        <location filename="../Main.qml" line="269"/>
         <source>Предложить варианты</source>
         <translation>Trigger suggestions</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="261"/>
+        <location filename="../Main.qml" line="270"/>
         <source>Перейти к определению</source>
         <translation>Go to definition</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="262"/>
+        <location filename="../Main.qml" line="271"/>
         <source>Найти ссылки</source>
         <translation>Find references</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="263"/>
+        <location filename="../Main.qml" line="272"/>
         <source>Назад</source>
         <translation>Go back</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="265"/>
+        <location filename="../Main.qml" line="274"/>
         <source>Переименовать символ</source>
         <translation>Rename symbol</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="268"/>
+        <location filename="../Main.qml" line="277"/>
         <source>Свои сниппеты для этого языка…</source>
         <translation>User snippets for this language…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="272"/>
+        <location filename="../Main.qml" line="281"/>
         <source>Форматировать документ</source>
         <translation>Format document</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="274"/>
+        <location filename="../Main.qml" line="283"/>
         <source>Проблемы</source>
         <translation>Problems</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="277"/>
+        <location filename="../Main.qml" line="286"/>
         <source>Git</source>
         <translation>Git</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="278"/>
+        <location filename="../Main.qml" line="287"/>
         <source>Панель Git</source>
         <translation>Git panel</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="279"/>
+        <location filename="../Main.qml" line="288"/>
         <source>Изменения файла</source>
         <translation>File changes</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="281"/>
+        <location filename="../Main.qml" line="290"/>
         <source>Следующее изменение</source>
         <translation>Next change</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="282"/>
+        <location filename="../Main.qml" line="291"/>
         <source>Предыдущее изменение</source>
         <translation>Previous change</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="286"/>
+        <location filename="../Main.qml" line="295"/>
         <source>Добавить файл в индекс</source>
         <translation>Stage file</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="290"/>
+        <location filename="../Main.qml" line="299"/>
         <source>Обновить состояние</source>
         <translation>Refresh status</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="294"/>
+        <location filename="../Main.qml" line="303"/>
         <source>Плагины</source>
         <translation>Plugins</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="308"/>
+        <location filename="../Main.qml" line="317"/>
         <source>Управление плагинами…</source>
         <translation>Manage plugins…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="311"/>
+        <location filename="../Main.qml" line="361"/>
         <source>Справка</source>
         <translation>Help</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="312"/>
+        <location filename="../Main.qml" line="362"/>
         <source>Горячие клавиши…</source>
         <translation>Keyboard shortcuts…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="313"/>
+        <location filename="../Main.qml" line="363"/>
         <source>Открыть папку данных</source>
         <translation>Open data folder</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="315"/>
+        <location filename="../Main.qml" line="365"/>
         <source>О программе</source>
         <translation>About</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="318"/>
+        <location filename="../Main.qml" line="320"/>
         <source>Вид</source>
         <translation>View</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="319"/>
+        <location filename="../Main.qml" line="321"/>
         <source>Свернуть блок</source>
         <translation>Fold block</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="320"/>
+        <location filename="../Main.qml" line="322"/>
         <source>Развернуть блок</source>
         <translation>Unfold block</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="322"/>
+        <location filename="../Main.qml" line="324"/>
         <source>Свернуть все</source>
         <translation>Fold all</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="323"/>
+        <location filename="../Main.qml" line="325"/>
         <source>Развернуть все</source>
         <translation>Unfold all</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="325"/>
+        <location filename="../Main.qml" line="327"/>
         <source>Перейти в боковую панель</source>
         <translation>Focus sidebar</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="326"/>
+        <location filename="../Main.qml" line="328"/>
         <source>Перейти в редактор</source>
         <translation>Focus editor</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="327"/>
+        <location filename="../Main.qml" line="329"/>
         <source>Проводник</source>
         <translation>Explorer</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="328"/>
+        <location filename="../Main.qml" line="330"/>
         <source>Показать или скрыть боковую панель</source>
         <translation>Toggle sidebar</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="328"/>
+        <location filename="../Main.qml" line="330"/>
         <source>Скрыть боковую панель</source>
         <translation>Hide sidebar</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="328"/>
+        <location filename="../Main.qml" line="330"/>
         <source>Показать боковую панель</source>
         <translation>Show sidebar</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="329"/>
+        <location filename="../Main.qml" line="331"/>
         <source>Показать или скрыть миникарту</source>
         <translation>Toggle minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="329"/>
+        <location filename="../Main.qml" line="331"/>
         <source>Скрыть миникарту</source>
         <translation>Hide minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="329"/>
+        <location filename="../Main.qml" line="331"/>
         <source>Показать миникарту</source>
         <translation>Show minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="330"/>
+        <location filename="../Main.qml" line="332"/>
         <source>Миникарта крупнее</source>
         <translation>Larger minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="331"/>
+        <location filename="../Main.qml" line="333"/>
         <source>Миникарта мельче</source>
         <translation>Smaller minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="335"/>
+        <location filename="../Main.qml" line="337"/>
         <source>Тема</source>
         <translation>Theme</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="341"/>
+        <location filename="../Main.qml" line="343"/>
         <source>  (текущая)</source>
         <translation>  (current)</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="349"/>
+        <location filename="../Main.qml" line="351"/>
         <source>Создать свою тему…</source>
         <translation>Create custom theme…</translation>
     </message>
@@ -1073,12 +1101,7 @@
         <translation>Search</translation>
     </message>
     <message>
-        <location filename="../qml/Sidebar.qml" line="51"/>
-        <source>Git  %1</source>
-        <translation>Git  %1</translation>
-    </message>
-    <message>
-        <location filename="../qml/Sidebar.qml" line="52"/>
+        <location filename="../qml/Sidebar.qml" line="49"/>
         <source>Git</source>
         <translation>Git</translation>
     </message>
@@ -1104,32 +1127,32 @@
 <context>
     <name>StatusBar</name>
     <message>
-        <location filename="../qml/StatusBar.qml" line="81"/>
+        <location filename="../qml/StatusBar.qml" line="75"/>
         <source>Ветка: %1</source>
         <translation>Branch: %1</translation>
     </message>
     <message>
-        <location filename="../qml/StatusBar.qml" line="89"/>
+        <location filename="../qml/StatusBar.qml" line="83"/>
         <source>Ошибок: %1</source>
         <translation>Errors: %1</translation>
     </message>
     <message>
-        <location filename="../qml/StatusBar.qml" line="90"/>
+        <location filename="../qml/StatusBar.qml" line="84"/>
         <source>Предупреждений: %1</source>
         <translation>Warnings: %1</translation>
     </message>
     <message>
-        <location filename="../qml/StatusBar.qml" line="101"/>
+        <location filename="../qml/StatusBar.qml" line="95"/>
         <source>Только чтение</source>
         <translation>Read-only</translation>
     </message>
     <message>
-        <location filename="../qml/StatusBar.qml" line="102"/>
+        <location filename="../qml/StatusBar.qml" line="96"/>
         <source>Курсоров: %1</source>
         <translation>Cursors: %1</translation>
     </message>
     <message>
-        <location filename="../qml/StatusBar.qml" line="103"/>
+        <location filename="../qml/StatusBar.qml" line="97"/>
         <source>Стр %1, Стлб %2</source>
         <translation>Ln %1, Col %2</translation>
     </message>
@@ -1137,12 +1160,12 @@
 <context>
     <name>TextBuffer</name>
     <message>
-        <location filename="../src/core/textbuffer.cpp" line="121"/>
+        <location filename="../src/core/textbuffer.cpp" line="132"/>
         <source>Файл больше 2 ГБ</source>
         <translation>File is larger than 2 GB</translation>
     </message>
     <message>
-        <location filename="../src/core/textbuffer.cpp" line="197"/>
+        <location filename="../src/core/textbuffer.cpp" line="204"/>
         <source>Файл открыт только для чтения</source>
         <translation>File is open read-only</translation>
     </message>
@@ -1158,6 +1181,14 @@
         <location filename="../src/services/thememanager.cpp" line="199"/>
         <source>Не удалось создать %1</source>
         <translation>Could not create %1</translation>
+    </message>
+</context>
+<context>
+    <name>TitleBar</name>
+    <message>
+        <location filename="../qml/TitleBar.qml" line="69"/>
+        <source>Перейти к файлу</source>
+        <translation>Go to File</translation>
     </message>
 </context>
 <context>

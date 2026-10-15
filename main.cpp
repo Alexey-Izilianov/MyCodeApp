@@ -1,10 +1,12 @@
 #include <QGuiApplication>
 #include <QFileInfo>
+#include <QIcon>
 #include <QQuickWindow>
 #include <QTimer>
 #include <string>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QWKQuick/qwkquickglobal.h>
 #include "src/services/logger.h"
 #include "src/services/appsettings.h"
 #include "src/services/localization.h"
@@ -54,6 +56,7 @@ int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
     QGuiApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/icon/app-256.png")));
 
     // appMyCodeApp.exe [--profile имя] [файл|папка]... — пути абсолютные: у запущенного
     // экземпляра своя рабочая папка
@@ -82,6 +85,7 @@ int main(int argc, char *argv[])
     Localization::applySavedLanguage();
 
     QQmlApplicationEngine engine;
+    QWK::registerTypes(&engine); // WindowAgent для своей строки заголовка
     spdlog::info("main: engine создан");
 
     QObject::connect(

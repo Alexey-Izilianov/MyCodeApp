@@ -28,14 +28,8 @@ Rectangle {
         function onStatusChanged() { statusBar.statusTick++ }
     }
 
-    implicitHeight: 24
-    color: Theme.chrome
-
-    Rectangle {
-        width: parent.width
-        height: 1
-        color: Theme.border
-    }
+    implicitHeight: 26
+    color: Theme.ground
 
     Timer {
         id: messageTimer

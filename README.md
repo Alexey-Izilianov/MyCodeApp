@@ -8,14 +8,6 @@
 **MyCodeApp** — редактор кода на C++20 и Qt 6 / QML с упором на скорость:
 файлы до 1 ГБ, несколько курсоров, LSP, Git, темы, сниппеты и плагины.
 
-![Тёмная тема](docs/screenshot.png)
-
-<details>
-<summary>Светлая тема</summary>
-
-![Светлая тема](docs/screenshot-light.png)
-</details>
-
 **Документация:** [руководство оператора](docs/operator-guide.md) ·
 [справочник по классам](docs/classes.md)
 

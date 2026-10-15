@@ -19,17 +19,12 @@ Rectangle {
     }
 
     height: 200
-    color: Theme.chrome
+    color: Theme.editor
 
-    Rectangle {
+    MouseArea { // высота — перетаскиванием зазора сверху
         width: parent.width
-        height: 1
-        color: Theme.border
-    }
-    MouseArea { // перетаскивание верхнего края
-        width: parent.width
-        height: 6
-        y: -3
+        height: Theme.islandGap
+        y: -height
         cursorShape: Qt.SizeVerCursor
         property real startY
         onPressed: (mouse) => startY = mouse.y
