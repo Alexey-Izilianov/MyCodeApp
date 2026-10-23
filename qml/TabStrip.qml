@@ -6,6 +6,9 @@ Rectangle {
     id: strip
     required property DocumentManager manager
     signal closeRequested(int index)
+    // Вкладку тянут мышью: точка — в координатах сцены
+    signal tabDragged(int index, point point)
+    signal tabDropped(int index, point point)
 
     implicitHeight: 36
     color: Theme.editor
@@ -38,7 +41,7 @@ Rectangle {
             readonly property bool active: index === strip.manager.currentIndex
             readonly property bool showClose: active || mouse.containsMouse
 
-            width: Math.min(240, Math.max(96, title.implicitWidth + 52))
+            width: Math.min(260, Math.max(116, title.implicitWidth + 74))
             height: list.height
 
             Rectangle {
@@ -50,11 +53,18 @@ Rectangle {
                 opacity: tab.active ? 1 : mouse.containsMouse ? 0.5 : 0
             }
 
+            FileIcon {
+                id: tabIcon
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: 10
+                name: tab.modelData.name
+            }
             Label {
                 id: title
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.left: parent.left
-                anchors.leftMargin: 12
+                anchors.left: tabIcon.right
+                anchors.leftMargin: 6
                 anchors.right: closeButton.left
                 anchors.rightMargin: 6
                 text: tab.modelData.name
@@ -104,7 +114,29 @@ Rectangle {
                 z: -1
                 hoverEnabled: true
                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                preventStealing: true
+                property point pressedAt
+                property bool dragging: false
+                onPressed: (event) => {
+                    pressedAt = Qt.point(event.x, event.y)
+                    dragging = false
+                }
+                onPositionChanged: (event) => {
+                    if (!(event.buttons & Qt.LeftButton))
+                        return
+                    if (!dragging && Math.hypot(event.x - pressedAt.x, event.y - pressedAt.y) > 12)
+                        dragging = true
+                    if (dragging)
+                        strip.tabDragged(tab.index, mapToItem(null, event.x, event.y))
+                }
+                onReleased: (event) => {
+                    if (dragging)
+                        strip.tabDropped(tab.index, mapToItem(null, event.x, event.y))
+                }
+                onCanceled: if (dragging) strip.tabDropped(tab.index, Qt.point(-1, -1))
                 onClicked: (event) => {
+                    if (dragging)
+                        return
                     if (event.button === Qt.MiddleButton)
                         strip.closeRequested(tab.index)
                     else

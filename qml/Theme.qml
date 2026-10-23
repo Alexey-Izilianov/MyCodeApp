@@ -8,6 +8,7 @@ QtObject {
     readonly property var ui: ThemeManager.ui
 
     readonly property color ground: ui.ground // подложка окна под «островами» панелей
+    readonly property color islandBorder: ui.islandBorder ?? "transparent" // контур островов (светлая тема)
     readonly property color editor: ui.editor
     readonly property color chrome: ui.chrome
     readonly property color popup: ui.popup

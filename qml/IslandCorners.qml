@@ -14,4 +14,12 @@ Rectangle {
     color: "transparent"
     border.width: ring
     border.color: Theme.ground
+
+    Rectangle {
+        anchors.fill: parent
+        anchors.margins: parent.ring
+        radius: Theme.islandRadius
+        color: "transparent"
+        border.color: Theme.islandBorder
+    }
 }

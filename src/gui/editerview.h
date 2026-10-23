@@ -5,6 +5,7 @@
 #include <QSet>
 #include <QPointer>
 #include <QQuickItem>
+#include <QScopedValueRollback>
 #include <QTimer>
 #include <QtQmlIntegration/qqmlintegration.h>
 #include <functional>
@@ -48,6 +49,9 @@ class EditorView : public QQuickItem {
     Q_PROPERTY(qreal lineHeight READ lineHeight CONSTANT)
     Q_PROPERTY(bool readOnly READ readOnly NOTIFY documentChanged)
     Q_PROPERTY(bool snippetActive READ snippetActive NOTIFY snippetChanged)
+    Q_PROPERTY(bool wordWrap READ wordWrap WRITE setWordWrap NOTIFY wordWrapChanged)
+    // Справа место под миникарту: текст и перенос его не занимают
+    Q_PROPERTY(qreal rightMargin READ rightMargin WRITE setRightMargin NOTIFY rightMarginChanged)
 
 public:
     explicit EditorView(QQuickItem *parent = nullptr);
@@ -71,18 +75,27 @@ public:
     const QFont &textFont() const { return m_font; }
     bool readOnly() const { return m_document && m_document->isReadOnly(); }
 
-    // Ряд — строка на экране после вычета свёрнутых
-    int rowCount() const { return m_document ? m_folds.rowCount(buffer().lineCount()) : 0; }
+    // Перенос длинных строк по ширине окна. Не действует на файлы длиннее kMaxWrapLines
+    // строк и на строки длиннее kLongLine символов — у них остаётся прокрутка вбок
+    bool wordWrap() const { return m_wordWrap; }
+    void setWordWrap(bool wrap);
+    qreal rightMargin() const { return m_rightMargin; }
+    void setRightMargin(qreal margin);
+
+    // Ряд — строка экрана: видимая (не свёрнутая) строка или её часть при переносе
+    int rowCount() const;
 
     struct ColorRun {
         int from = 0; // визуальные колонки (табуляции развёрнуты)
         int to = 0;
         QRgb color = 0;
+        int font = 0; // SyntaxHighlighter::FontStyle
     };
     struct StyledLine {
         int line = 0;
         QString display; // табуляции развёрнуты в пробелы
         QVector<ColorRun> runs; // покрывают display целиком
+        bool lastRow = true; // последний ряд перенесённой строки
     };
     // Подсвеченные ряды; строки обрезаются до maxColumn символов
     QVector<StyledLine> styledLines(int firstRow, int count, int maxColumn) const;
@@ -115,6 +128,8 @@ public:
     Q_INVOKABLE QString selectedText() const; // основной курсор
     Q_INVOKABLE void replaceSelection(const QString &text);
     Q_INVOKABLE QString wordAtCursor() const;
+    // Цвет под позицией (#rgb, #rrggbb, #rrggbbaa, rgb()/rgba()): {color, hex, rgb, hsl}; пусто — нет
+    Q_INVOKABLE QVariantMap colorAt(int line, int column) const;
     Q_INVOKABLE QRectF caretRectangle() const; // основной курсор, в координатах элемента
     // [{startLine, startColumn, endLine, endColumn, severity}] — подчёркивания диагностики
     Q_INVOKABLE void setDiagnostics(const QVariantList &diagnostics);
@@ -162,6 +177,8 @@ signals:
     void hoverLeft();
     void definitionClicked(int line, int column); // Ctrl+клик
     void snippetChanged();
+    void wordWrapChanged();
+    void rightMarginChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
@@ -229,12 +246,23 @@ private:
     void erase(bool forward, bool word);
     void indentLines(bool outdent);
     void afterTextChange();
+    // Журнал правки документа (Document::changed): своей или из другого места — другой
+    // половины экрана, LSP, восстановления
+    void applyDocumentEdits(const QVector<core::TextBuffer::Edit> &edits, bool overflow);
+    template <class F>
+    auto selfEdit(F &&edit)
+    {
+        const QScopedValueRollback<bool> guard(m_selfEdit, true);
+        return edit();
+    }
+    void spliceWrap(const QVector<core::TextBuffer::Edit> &edits, bool overflow);
     QChar charAt(Cursor c, int delta) const;
 
     Cursor stepLeft(Cursor c, bool word) const;
     Cursor stepRight(Cursor c, bool word) const;
     Cursor cursorAt(const QPointF &pos) const; // колонка может быть за концом строки
-    Cursor visualAt(const QPointF &pos) const; // {строка, визуальная колонка}
+    // {строка, визуальная колонка}; nearest — ближайшая граница символов, иначе символ под точкой
+    Cursor visualAt(const QPointF &pos, bool nearest = true) const;
     int visualOf(Cursor c) const;
     Cursor fromVisual(int line, int visual) const;
     void updateBrackets();
@@ -243,16 +271,33 @@ private:
     void setScroll(qreal x, qreal y);
     void restartCaretBlink();
     qreal textLeft() const { return m_gutterWidth; }
-    qreal textWidth() const { return qMax<qreal>(0, width() - m_gutterWidth); }
+    qreal textWidth() const { return qMax<qreal>(0, width() - m_gutterWidth - m_rightMargin); }
     void updateGutterWidth();
 
     void markContentChanged();
     void track(core::Document *doc); // разовые подписки на документ
     void documentReloaded();
 
-    int rowOf(int line) const { return m_folds.rowOf(line); }
-    int lineAt(int row) const { return m_folds.lineAt(qBound(0, row, rowCount() - 1)); }
-    int lineByRows(int line, int rows) const { return lineAt(rowOf(line) + rows); }
+    // Ряды экрана с учётом переноса: первый ряд строки (скрытой — её заголовка) и строка ряда
+    int rowOf(int line) const;
+    int lineAt(int row) const;
+    // Видимая строка на rows видимых строк ниже (выше); перенос не учитывается
+    int lineByRows(int line, int rows) const;
+    // Перенос
+    bool wrapping() const;
+    void invalidateWrap();
+    void updateWrapColumns();
+    void ensureWrap() const;
+    struct RowLayout {
+        QVector<int> starts{0}; // визуальные колонки начала рядов строки
+        int indent = 0;         // сдвиг рядов-продолжений
+    };
+    RowLayout rowLayout(int line) const;
+    QVector<int> rowStarts(int line) const { return rowLayout(line).starts; }
+    QPoint screenOf(Cursor c) const;            // {колонка в ряду, ряд экрана}
+    Cursor visualAtScreen(int row, int column) const; // {строка, визуальная колонка}
+    // Отрезок [v0, v1) визуальных колонок строки по рядам — прямоугольники в координатах текста
+    QVector<QRectF> spanRects(int line, int v0, int v1) const;
     bool isLineVisible(int line, int firstLine, int lastLine) const
     { return line >= firstLine && line <= lastLine && !m_folds.isHidden(line); }
     bool inFoldMarker(qreal x) const
@@ -319,6 +364,17 @@ private:
 
     qreal m_scrollX = 0;
     qreal m_scrollY = 0;
+
+    bool m_selfEdit = false; // идёт правка из этого вида
+    qreal m_rightMargin = 0;
+    bool m_wordWrap = false;
+    int m_wrapColumns = 0;                 // ширина ряда в колонках
+    mutable QVector<int> m_wrapExtra;      // по строкам: рядов сверх первого; -1 — пересчитать
+    mutable bool m_wrapPending = false;    // есть -1 в m_wrapExtra — в строках [from, to)
+    mutable int m_wrapPendingFrom = 0;
+    mutable int m_wrapPendingTo = 0;
+    mutable QVector<int> m_wrapBefore;     // по строкам + итог: лишних рядов у видимых строк выше
+    mutable QHash<int, RowLayout> m_rowStartsCache;
 
     QFont m_font;
     qreal m_lineHeight = 0;

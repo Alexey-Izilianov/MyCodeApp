@@ -9,11 +9,11 @@ Item {
     signal pluginsRequested()
     signal settingsRequested()
 
-    implicitWidth: 44
+    implicitWidth: 48
 
     Column {
         anchors.horizontalCenter: parent.horizontalCenter
-        spacing: 4
+        spacing: 5
         Repeater {
             model: [{ mode: "files", icon: "files", tip: qsTr("Проводник") },
                     { mode: "search", icon: "search", tip: qsTr("Поиск по проекту") },
@@ -40,7 +40,7 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 4
-        spacing: 4
+        spacing: 5
         ActivityButton { iconName: "plugins"; tip: qsTr("Плагины"); onClicked: bar.pluginsRequested() }
         ActivityButton { iconName: "settings"; tip: qsTr("Настройки"); onClicked: bar.settingsRequested() }
     }

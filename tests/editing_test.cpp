@@ -12,6 +12,7 @@ private slots:
     void visualColumns();
     void columnFromVisual();
     void expandTabsMap();
+    void wrapStarts();
     void detectSpacesAndTabs();
     void bracketMatching();
 
@@ -78,6 +79,30 @@ void EditingTest::bracketMatching()
     QCOMPARE(matchingBracket(b, {0, 8}), std::optional<TextBuffer::Position>({2, 0}));
     QVERIFY(!matchingBracket(b, {0, 0}).has_value()); // не скобка
     QVERIFY(!matchingBracket(buffer("(("), {0, 0}).has_value()); // без пары
+}
+
+void EditingTest::wrapStarts()
+{
+    using V = QVector<int>;
+    QCOMPARE(editing::wrapStarts(QStringLiteral("short"), 10), V{0});
+    // Рвём после пробела: "aaaa bbbb" | "cccc"
+    QCOMPARE(editing::wrapStarts(QStringLiteral("aaaa bbbb cccc"), 10), (V{0, 10}));
+    QCOMPARE(editing::wrapStarts(QStringLiteral("aaaa bbbb cccc"), 9), (V{0, 10})); // пробел свисает
+    QCOMPARE(editing::wrapStarts(QStringLiteral("aaaa bbbb cccc"), 7), (V{0, 5, 10}));
+    // Слово длиннее ширины — посимвольно
+    QCOMPARE(editing::wrapStarts(QStringLiteral("abcdefghij"), 4), (V{0, 4, 8}));
+    // Продолжения сдвинуты на отступ и становятся уже
+    int indent = -1;
+    QCOMPARE(editing::wrapStarts(QStringLiteral("    aaaa bbbb cccc"), 12, &indent), (V{0, 9, 14}));
+    QCOMPARE(indent, 4);
+    // Отступ и одно длинное слово: первый ряд не пустой, продолжения не шире окна
+    const QVector<int> word = editing::wrapStarts(QString(8, u' ') + QString(100, u'x'), 40);
+    QCOMPARE(word.at(1), 40);
+    for (int i = 2; i < word.size(); ++i)
+        QVERIFY(word.at(i) - word.at(i - 1) <= 40 - 8);
+    // Отступ больше половины ширины не повторяем
+    editing::wrapStarts(QStringLiteral("        aaaa"), 10, &indent);
+    QCOMPARE(indent, 0);
 }
 
 QTEST_GUILESS_MAIN(EditingTest)

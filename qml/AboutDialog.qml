@@ -25,6 +25,12 @@ Popup {
             text: qsTr("Версия %1 · Qt %2").arg(AppInfo.version).arg(AppInfo.qtVersion)
             color: Theme.muted
         }
+        Label {
+            width: parent.width
+            text: qsTr("Разработчик — Изилянов Алексей Дмитриевич. Все права остаются за автором.")
+            color: Theme.muted
+            wrapMode: Text.Wrap
+        }
         Item { width: 1; height: 8 }
         Label {
             width: parent.width

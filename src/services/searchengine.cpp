@@ -9,12 +9,18 @@ SearchEngine::SearchEngine(QObject *parent)
     qRegisterMetaType<SearchEngine::Match>();
 }
 
+SearchEngine::~SearchEngine()
+{
+    cancel();
+    m_pool.waitForDone();
+}
+
 void SearchEngine::start(const core::PieceTable::Snapshot &snapshot,
                          const QString &needle, bool caseSensitive)
 {
     const int id = ++m_runId;
     const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
-    QThreadPool::globalInstance()->start([this, id, snapshot, needle, cs] {
+    m_pool.start([this, id, snapshot, needle, cs] {
         search([&](const LineVisitor &visit) { snapshot.forEachLine(visit); }, id, needle, cs);
     });
 }
@@ -23,7 +29,7 @@ void SearchEngine::start(const QStringList &lines, const QString &needle, bool c
 {
     const int id = ++m_runId;
     const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
-    QThreadPool::globalInstance()->start([this, id, lines, needle, cs] {
+    m_pool.start([this, id, lines, needle, cs] {
         search([&](const LineVisitor &visit) {
             for (int i = 0; i < lines.size() && visit(i, lines.at(i)); ++i) {}
         }, id, needle, cs);

@@ -744,7 +744,8 @@ void LspManager::applyWorkspaceEdit(EditorView *editor, const QJsonObject &edit)
 
     // Неоткрытые файлы открываются вкладками (правки видны и отменяемы), потом
     // возвращаемся на исходную вкладку
-    QObject *original = editor->document();
+    // Вкладку левой половины помним по номеру: editor может быть правой половиной
+    const int originalIndex = m_documents->currentIndex();
     for (auto it = byPath.cbegin(); it != byPath.cend(); ++it) {
         Document *doc = findDocument(it.key());
         if (!doc)
@@ -764,8 +765,7 @@ void LspManager::applyWorkspaceEdit(EditorView *editor, const QJsonObject &edit)
         }
         doc->replace(parts, Document::EditKind::Other, {});
     }
-    const int originalIndex = int(m_documents->documents().indexOf(qobject_cast<Document *>(original)));
-    if (originalIndex >= 0)
+    if (originalIndex >= 0 && originalIndex != m_documents->currentIndex())
         m_documents->activate(originalIndex);
     emit message(tr("Изменено файлов: %1").arg(byPath.size()));
 }

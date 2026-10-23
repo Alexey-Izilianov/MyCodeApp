@@ -2,12 +2,14 @@ import QtQuick
 import QtQuick.Controls.Basic
 import MyCodeApp
 
-// Панель Git: ветка, сообщение и коммит, индексированные и прочие изменения
+// Панель контроля версий (Git, Mercurial): ветка, сообщение и коммит, индексированные
+// (у Mercurial — отмеченные для коммита) и прочие изменения
 Item {
     id: panel
     required property GitService git
     required property string rootPath
     signal openDiff(string path, bool staged)
+    signal openHistory()
     signal openFile(string path)
     signal leave()
 
@@ -28,7 +30,7 @@ Item {
                 result.push(Object.assign({ header: false, staged: staged }, e))
         }
         if (git.stagedChanges.length > 0)
-            add(qsTr("Индексированные"), true, git.stagedChanges)
+            add(git.hasIndex ? qsTr("Индексированные") : qsTr("В коммит"), true, git.stagedChanges)
         add(qsTr("Изменения"), false, git.changes)
         return result
     }
@@ -40,11 +42,12 @@ Item {
         topPadding: 8
         spacing: 6
 
-        Row {
+        Item {
             x: 8
             width: parent.width - 16
-            spacing: 6
+            height: 24
             Label {
+                id: branchLabel
                 anchors.verticalCenter: parent.verticalCenter
                 text: qsTr("Ветка")
                 color: Theme.muted
@@ -52,12 +55,23 @@ Item {
             }
             FlatButton {
                 id: branchButton
-                width: Math.min(implicitWidth, parent.width - x)
+                anchors.left: branchLabel.right
+                anchors.leftMargin: 6
+                width: Math.min(implicitWidth, historyButton.x - x - 6)
                 implicitHeight: 24
                 leftPadding: 8
                 rightPadding: 8
                 text: panel.git.branch
                 onClicked: branchMenu.popup(branchButton, 0, branchButton.height + 2)
+            }
+            FlatButton {
+                id: historyButton
+                anchors.right: parent.right
+                implicitHeight: 24
+                leftPadding: 8
+                rightPadding: 8
+                text: qsTr("История")
+                onClicked: panel.openHistory()
             }
         }
 
@@ -210,7 +224,11 @@ Item {
                 IconButton {
                     width: 22; height: 22
                     glyph: row.modelData.staged ? "−" : "+"
-                    tip: row.modelData.staged
+                    tip: !panel.git.hasIndex
+                         ? (row.modelData.staged
+                            ? (row.header ? qsTr("Убрать всё из коммита") : qsTr("Убрать из коммита"))
+                            : (row.header ? qsTr("Отметить всё для коммита") : qsTr("Отметить для коммита")))
+                         : row.modelData.staged
                          ? (row.header ? qsTr("Убрать всё из индекса") : qsTr("Убрать из индекса"))
                          : (row.header ? qsTr("Добавить всё в индекс") : qsTr("Добавить в индекс"))
                     onClicked: {

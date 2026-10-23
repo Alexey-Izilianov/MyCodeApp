@@ -9,14 +9,16 @@ AbstractButton {
     property string tip
     property int badge: 0
 
-    implicitWidth: 32
-    implicitHeight: 32
+    implicitWidth: 35
+    implicitHeight: 35
     hoverEnabled: true
     focusPolicy: Qt.NoFocus
 
     contentItem: Item {
         LineIcon {
             anchors.centerIn: parent
+            width: 20
+            height: 20
             name: button.iconName
             color: button.checked || button.hovered ? Theme.text : Theme.muted
         }
@@ -42,7 +44,12 @@ AbstractButton {
         color: button.checked ? Theme.hover : button.hovered ? Qt.alpha(Theme.hover, 0.6) : "transparent"
     }
 
-    ToolTip.visible: hovered && tip !== ""
-    ToolTip.text: tip
-    ToolTip.delay: 500
+    // Справа от кнопки, а не над ней: сверху подсказка закрывала соседний значок
+    ToolTip {
+        visible: button.hovered && button.tip !== ""
+        text: button.tip
+        delay: 500
+        x: button.width + 8
+        y: (button.height - height) / 2
+    }
 }

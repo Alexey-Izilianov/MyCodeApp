@@ -20,11 +20,15 @@ struct TSTree;
 // задача за раз. Правки сразу применяются к текущему дереву (ts_tree_edit
 // сдвигает узлы — подсветка едет вместе с текстом до конца пересчёта);
 // правки, пришедшие во время разбора, докатываются на его результат.
+// Вложенные языки (разметка абзацев Markdown, код в ```) разбираются тем же
+// фоновым заданием отдельными деревьями по участкам основного.
 // API — из GUI-потока; highlightLines можно звать из updatePaintNode.
 class SyntaxHighlighter : public QObject {
     Q_OBJECT
 public:
-    using Span = Highlighter::Span; // rule — индекс цвета для color()
+    using Span = Highlighter::Span; // rule — индекс стиля для color() и fontStyle()
+
+    enum FontStyle { Bold = 1, Italic = 2, StrikeOut = 4, Underline = 8 };
 
     // Крупнее (в QChar) — не разбираем: секунды и сотни МБ на дерево
     static constexpr int kMaxChars = 8 * 1024 * 1024;
@@ -45,7 +49,8 @@ public:
 
     void highlightLines(int firstLine, const QStringList &lines,
                         QVector<QVector<Span>> &out) const;
-    static QColor color(int rule);
+    static QColor color(int rule); // недействительный — цвет текста
+    static int fontStyle(int rule); // флаги FontStyle
     static const char *styleName(int rule); // "keyword", "string", ...
 
 signals:
@@ -53,13 +58,21 @@ signals:
 
 private:
     struct Language;
+    struct Injection {
+        const Language *lang = nullptr;
+        TSTree *tree = nullptr; // свой; участки текста — included ranges дерева
+        bool replacesBase = false; // код в ``` перекрашивается с нуля
+    };
+    struct Parsed;
     static const Language *languageFor(const QString &suffix);
+    static const Language *languageNamed(const QString &name); // язык блока ```
     void schedule(const core::PieceTable::Snapshot &snapshot);
-    void onParsed(std::shared_ptr<TSTree> tree, int generation);
-    void setTree(TSTree *tree);
+    void onParsed(const std::shared_ptr<Parsed> &parsed, int generation);
+    void setTrees(TSTree *tree, QVector<Injection> injections);
 
     const Language *m_lang = nullptr;
     TSTree *m_tree = nullptr;
+    QVector<Injection> m_injections; // по порядку в тексте
     bool m_busy = false;
     QVector<core::TextBuffer::Edit> m_editsDuringParse;
     std::optional<core::PieceTable::Snapshot> m_latest;

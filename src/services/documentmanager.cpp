@@ -170,8 +170,8 @@ void DocumentManager::close(int index)
     m_recovery->discard(doc); // закрыт осознанно — несохранённое не восстанавливаем
     m_conflicts.remove(doc);
     m_watcher.removePath(doc->filePath());
-    if (m_current >= m_docs.size())
-        m_current = m_docs.size() - 1;
+    if (index < m_current || m_current >= m_docs.size())
+        --m_current; // закрыли вкладку левее текущей (или саму последнюю) — текущая та же
     // Сначала уведомляем (редактор отцепит документ), потом удаляем
     emit tabsChanged();
     emit currentIndexChanged();

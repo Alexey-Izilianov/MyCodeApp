@@ -47,8 +47,12 @@
   прокрутка), слежение за изменениями на диске, поиск по проекту, Ctrl+P.
 
 **Подсветка**
-- C/C++, Python, QML (с JavaScript) — tree-sitter в фоновом потоке
-  с инкрементальным пересчётом; JSON и Markdown — регулярные выражения.
+- C/C++, Python, QML (с JavaScript), Markdown, CMake — tree-sitter в фоновом потоке
+  с инкрементальным пересчётом; JSON — регулярные выражения.
+- Markdown: заголовки, жирный, курсив, зачёркнутый, код, ссылки, списки, цитаты,
+  таблицы; код в ``` подсвечивается грамматикой своего языка
+  ([tree-sitter-markdown](https://github.com/tree-sitter-grammars/tree-sitter-markdown), MIT).
+- Образец цвета при наведении на `#rrggbb` / `rgb()`; значки файлов по языку.
 
 **Языковые серверы (LSP)**
 - clangd, qmlls, pyright, rust-analyzer: автодополнение с документацией,

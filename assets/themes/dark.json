@@ -59,6 +59,11 @@
         "key": "#56a8f5",
         "heading": "#cf8e6d",
         "bold": "#56a8f5",
-        "code": "#6aab73"
+        "code": "#6aab73",
+        "link": "#6c9bd2",
+        "url": "#7a7e85",
+        "punctuation": "#7a7e85",
+        "quote": "#9da0a8",
+        "strike": "#7a7e85"
     }
 }

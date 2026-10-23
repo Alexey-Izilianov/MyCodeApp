@@ -2,6 +2,7 @@
 
 #include <QList>
 #include <QObject>
+#include <QThreadPool>
 #include <QString>
 #include <QStringList>
 #include <atomic>
@@ -22,6 +23,7 @@ public:
     };
 
     explicit SearchEngine(QObject *parent = nullptr);
+    ~SearchEngine() override; // отменяет и дожидается поиска: задачи держат this
 
     // Снимок piece table: на GUI-потоке копирование O(1), строки
     // читаются по одной в фоновом потоке.
@@ -41,4 +43,5 @@ private:
                 const QString &needle, Qt::CaseSensitivity cs);
 
     std::atomic<int> m_runId{0};
+    QThreadPool m_pool;
 };

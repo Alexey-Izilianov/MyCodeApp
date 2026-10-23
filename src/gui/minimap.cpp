@@ -19,7 +19,7 @@ struct Level {
     qreal rowPitch;
     int columns; // сколько колонок помещается по ширине
 };
-constexpr Level kLevels[] = {{2, 90}, {5, 64}, {8, 64}};
+constexpr Level kLevels[] = {{2, 48}, {5, 36}, {8, 30}};
 } // namespace
 
 Minimap::Minimap(QQuickItem *parent)
@@ -172,6 +172,12 @@ QImage Minimap::renderImage(int first) const
 
 QSGNode *Minimap::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
+    // До раскладки размер нулевой: QImage пуст и QPainter на нём не открывается
+    if (boundingRect().isEmpty()) {
+        delete oldNode;
+        return nullptr;
+    }
+
     QSGImageNode *imageNode = nullptr;
     QSGSimpleRectNode *slider = nullptr;
     if (oldNode) {

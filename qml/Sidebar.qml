@@ -13,6 +13,7 @@ Rectangle {
     property string mode: "files" // "files" | "search" | "git"
     signal openFile(string path)
     signal openDiff(string path, bool staged)
+    signal openHistory()
     signal openMatch(string path, int line, int column, int length)
     signal openFolderRequested()
     signal leave()
@@ -46,7 +47,8 @@ Rectangle {
         x: 14
         height: 34
         verticalAlignment: Text.AlignVCenter
-        text: sidebar.mode === "files" ? qsTr("Проводник") : sidebar.mode === "search" ? qsTr("Поиск") : qsTr("Git")
+        text: sidebar.mode === "files" ? qsTr("Проводник") : sidebar.mode === "search" ? qsTr("Поиск")
+              : sidebar.git.available ? sidebar.git.kind : qsTr("Контроль версий")
         color: Theme.muted
         font.pixelSize: Theme.smallFontSize - 1
         font.capitalization: Font.AllUppercase
@@ -80,6 +82,7 @@ Rectangle {
             git: sidebar.git
             rootPath: sidebar.workspace.rootPath
             onOpenDiff: (path, staged) => sidebar.openDiff(path, staged)
+            onOpenHistory: sidebar.openHistory()
             onOpenFile: (path) => sidebar.openFile(path)
             onLeave: sidebar.leave()
         }

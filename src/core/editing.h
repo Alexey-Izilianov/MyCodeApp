@@ -19,6 +19,10 @@ int visualColumn(const QString &line, int column);
 int columnAtVisual(const QString &line, int visual);
 // Строка с табуляциями, развёрнутыми в пробелы; map[i] — визуальная колонка символа i
 QString expandTabs(const QString &line, QVector<int> *map = nullptr);
+// Перенос строки по ширине columns: визуальные колонки начала каждого ряда ({0} — без
+// переноса). Рвём после последнего пробела ряда, длинное слово — посимвольно.
+// Продолжения сдвинуты на отступ строки (если он не больше половины ширины) — indent
+QVector<int> wrapStarts(const QString &line, int columns, int *indent = nullptr);
 
 struct IndentStyle {
     bool tabs = false;

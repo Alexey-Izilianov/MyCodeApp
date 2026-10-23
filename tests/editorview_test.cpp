@@ -46,6 +46,8 @@ private slots:
     void foldNavigation();
     void foldEditsAndReveal();
     void foldAllAndClick();
+    void wordWrapRows();
+    void documentInTwoViews();
 
 private:
     Document *openDoc(const QByteArray &text, const QString &suffix = QStringLiteral("txt"));
@@ -583,6 +585,77 @@ void EditorViewTest::foldAllAndClick()
 
     m_view->unfoldAll();
     QCOMPARE(m_view->contentHeight(), fullHeight);
+}
+
+void EditorViewTest::wordWrapRows()
+{
+    QByteArray longLine;
+    for (int i = 0; i < 60; ++i)
+        longLine += "word ";
+    Document *doc = openDoc(longLine + "\nend");
+    QVERIFY(doc);
+    const int lh = lineHeight();
+    QVERIFY(lh > 0);
+    auto rows = [&] { return qRound((m_view->contentHeight() - m_view->height()) / lh) + 1; };
+    QCOMPARE(rows(), 2);
+
+    m_view->setWordWrap(true);
+    const int wrapped = rows();
+    QVERIFY(wrapped > 3); // 300 символов в окне шириной ~90 колонок
+
+    // Вниз — по рядам той же строки, затем на следующую
+    QTest::keyClick(m_window, Qt::Key_Home, Qt::ControlModifier);
+    QTest::keyClick(m_window, Qt::Key_Down);
+    QCOMPARE(m_view->cursorLine(), 0);
+    QVERIFY(m_view->cursorColumn() > 0);
+    for (int i = 0; i < wrapped - 2; ++i)
+        QTest::keyClick(m_window, Qt::Key_Down);
+    QCOMPARE(m_view->cursorLine(), 1);
+
+    // Клик во втором ряду попадает в первую строку, в её середину
+    QTest::mouseClick(m_window, Qt::LeftButton, {}, QPoint(400, lh + lh / 2));
+    QCOMPARE(m_view->cursorLine(), 0);
+    QVERIFY(m_view->cursorColumn() > 60);
+
+    // Правка меняет число рядов только у своей строки
+    QTest::keyClick(m_window, Qt::Key_End, Qt::ControlModifier);
+    QTest::keyClick(m_window, Qt::Key_Return);
+    QCOMPARE(rows(), wrapped + 1);
+    QTest::keyClick(m_window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(rows(), wrapped);
+
+    m_view->setWordWrap(false);
+    QCOMPARE(rows(), 2);
+}
+
+void EditorViewTest::documentInTwoViews()
+{
+    Document *doc = openDoc("one\ntwo\nthree\n");
+    QVERIFY(doc);
+    auto *other = new EditorView(m_window->contentItem());
+    other->setSize(QSizeF(400, 400));
+    other->setDocument(doc);
+    other->setViewStateOf(doc, {{QStringLiteral("line"), 2}, {QStringLiteral("column"), 3}});
+    QCOMPARE(other->cursorLine(), 2);
+
+    // Правка в одном виде сдвигает курсор другого
+    QTest::keyClick(m_window, Qt::Key_Home, Qt::ControlModifier);
+    typeText("x");
+    QTest::keyClick(m_window, Qt::Key_Return);
+    QCOMPARE(other->cursorLine(), 3);
+    QCOMPARE(other->cursorColumn(), 3);
+    QCOMPARE(m_view->cursorLine(), 1); // свой курсор ставит сама операция
+
+    // Правка мимо видов (как переименование LSP) доходит до обоих
+    doc->replace({{{0, 0}, {0, 0}, QStringLiteral("a\nb\n")}}, Document::EditKind::Other, {});
+    QCOMPARE(other->cursorLine(), 5);
+    QCOMPARE(m_view->cursorLine(), 3);
+
+    // Отмена из другого вида возвращает текст в обоих
+    QTest::keyClick(m_window, Qt::Key_Z, Qt::ControlModifier);
+    QCOMPARE(text(doc), QStringLiteral("x\none\ntwo\nthree\n"));
+    QCOMPARE(other->cursorLine(), 3);
+    delete other;
 }
 
 QTEST_MAIN(EditorViewTest)

@@ -13,7 +13,12 @@ Item {
         search: "M18 11a7 7 0 1 1-14 0a7 7 0 1 1 14 0z M20.5 20.5l-4.5-4.5",
         git: "M6 3v12 M21 6a3 3 0 1 1-6 0a3 3 0 1 1 6 0z M9 18a3 3 0 1 1-6 0a3 3 0 1 1 6 0z M18 9a9 9 0 0 1-9 9",
         plugins: "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 17h6 M17 14v6",
-        settings: "M4 6h9 M17 6h3 M4 12h3 M11 12h9 M4 18h11 M19 18h1 M15 4v4 M9 10v4 M17 16v4"
+        settings: "M4 6h9 M17 6h3 M4 12h3 M11 12h9 M4 18h11 M19 18h1 M15 4v4 M9 10v4 M17 16v4",
+        // Типы файлов (FileIcon)
+        image: "M4 5h16v14H4z M4 17l5-5 4 4 2.5-2.5 4.5 4.5 M17 9a1.5 1.5 0 1 1-3 0a1.5 1.5 0 1 1 3 0z",
+        archive: "M5 3h14v18H5z M12 3v2 M12 7v2 M12 11v2 M10 15h4v3h-4z",
+        lock: "M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3",
+        text: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z M14 3v5h5 M9 13h6 M9 17h6"
     })
 
     implicitWidth: 18

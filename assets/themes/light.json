@@ -2,26 +2,27 @@
     "name": "Бумага (светлая)",
     "nameEn": "Paper (light)",
     "ui": {
-        "ground": "#e6e7eb",
+        "ground": "#eef0f3",
         "editor": "#ffffff",
-        "chrome": "#f2f3f5",
+        "chrome": "#f7f8fa",
         "popup": "#ffffff",
-        "border": "#dcdee3",
-        "hover": "#e6e8ec",
-        "pressed": "#dadde3",
+        "border": "#dfe2e7",
+        "hover": "#eceff3",
+        "pressed": "#dfe6f2",
         "text": "#1f2023",
         "muted": "#5d6068",
         "faint": "#8c8f96",
         "accent": "#3574f0",
         "selection": "#cfe0fc",
-        "scrollThumb": "#c4c6cc",
+        "scrollThumb": "#cbd0d8",
         "gitAdded": "#3d8a49",
         "gitModified": "#946a17",
         "gitDeleted": "#c0473b",
         "gitConflict": "#c43e3e",
         "error": "#d0453c",
         "warning": "#b98a1a",
-        "info": "#3b78c2"
+        "info": "#3b78c2",
+        "islandBorder": "#e0e3e8"
     },
     "editor": {
         "background": "#ffffff",
@@ -59,6 +60,11 @@
         "key": "#871094",
         "heading": "#0033b3",
         "bold": "#00627a",
-        "code": "#067d17"
+        "code": "#067d17",
+        "link": "#2a5db0",
+        "url": "#8c8c8c",
+        "punctuation": "#a0a4ab",
+        "quote": "#6b6e75",
+        "strike": "#8c8c8c"
     }
 }

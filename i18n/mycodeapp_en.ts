@@ -9,22 +9,27 @@
         <translation>Version %1 · Qt %2</translation>
     </message>
     <message>
-        <location filename="../qml/AboutDialog.qml" line="31"/>
+        <location filename="../qml/AboutDialog.qml" line="30"/>
+        <source>Разработчик — Изилянов Алексей Дмитриевич. Все права остаются за автором.</source>
+        <translation>Developer: Alexey Dmitrievich Izilianov. All rights reserved by the author.</translation>
+    </message>
+    <message>
+        <location filename="../qml/AboutDialog.qml" line="37"/>
         <source>Портативный режим. </source>
         <translation>Portable mode. </translation>
     </message>
     <message>
-        <location filename="../qml/AboutDialog.qml" line="31"/>
+        <location filename="../qml/AboutDialog.qml" line="37"/>
         <source>Данные: %1</source>
         <translation>Data: %1</translation>
     </message>
     <message>
-        <location filename="../qml/AboutDialog.qml" line="41"/>
+        <location filename="../qml/AboutDialog.qml" line="47"/>
         <source>Открыть папку данных</source>
         <translation>Open data folder</translation>
     </message>
     <message>
-        <location filename="../qml/AboutDialog.qml" line="46"/>
+        <location filename="../qml/AboutDialog.qml" line="52"/>
         <source>Закрыть</source>
         <translation>Close</translation>
     </message>
@@ -106,32 +111,32 @@
 <context>
     <name>DiffView</name>
     <message>
-        <location filename="../qml/DiffView.qml" line="60"/>
+        <location filename="../qml/DiffView.qml" line="65"/>
         <source>  ·  без изменений</source>
         <translation>  ·  no changes</translation>
     </message>
     <message>
-        <location filename="../qml/DiffView.qml" line="61"/>
+        <location filename="../qml/DiffView.qml" line="66"/>
         <source>  ·  участков: %1</source>
         <translation>  ·  hunks: %1</translation>
     </message>
     <message>
-        <location filename="../qml/DiffView.qml" line="71"/>
+        <location filename="../qml/DiffView.qml" line="76"/>
         <source>Предыдущее изменение (Shift+Alt+F5)</source>
         <translation>Previous change (Shift+Alt+F5)</translation>
     </message>
     <message>
-        <location filename="../qml/DiffView.qml" line="72"/>
+        <location filename="../qml/DiffView.qml" line="77"/>
         <source>Следующее изменение (Alt+F5)</source>
         <translation>Next change (Alt+F5)</translation>
     </message>
     <message>
-        <location filename="../qml/DiffView.qml" line="75"/>
+        <location filename="../qml/DiffView.qml" line="80"/>
         <source>Открыть файл</source>
         <translation>Open file</translation>
     </message>
     <message>
-        <location filename="../qml/DiffView.qml" line="78"/>
+        <location filename="../qml/DiffView.qml" line="83"/>
         <source>Закрыть (Esc)</source>
         <translation>Close (Esc)</translation>
     </message>
@@ -154,7 +159,7 @@
 <context>
     <name>EditorView</name>
     <message>
-        <location filename="../src/gui/editerview.cpp" line="575"/>
+        <location filename="../src/gui/editerview.cpp" line="647"/>
         <source>Текст</source>
         <translation>Plain text</translation>
     </message>
@@ -246,128 +251,158 @@
 <context>
     <name>GitPanel</name>
     <message>
-        <location filename="../qml/GitPanel.qml" line="31"/>
+        <location filename="../qml/GitPanel.qml" line="33"/>
         <source>Индексированные</source>
         <translation>Staged</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="32"/>
+        <location filename="../qml/GitPanel.qml" line="33"/>
+        <source>В коммит</source>
+        <translation>To commit</translation>
+    </message>
+    <message>
+        <location filename="../qml/GitPanel.qml" line="34"/>
         <source>Изменения</source>
         <translation>Changes</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="49"/>
+        <location filename="../qml/GitPanel.qml" line="52"/>
         <source>Ветка</source>
         <translation>Branch</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="75"/>
+        <location filename="../qml/GitPanel.qml" line="73"/>
+        <source>История</source>
+        <translation>History</translation>
+    </message>
+    <message>
+        <location filename="../qml/GitPanel.qml" line="89"/>
         <source>Сообщение коммита (Ctrl+Enter)</source>
         <translation>Commit message (Ctrl+Enter)</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="101"/>
+        <location filename="../qml/GitPanel.qml" line="115"/>
         <source>Коммит (%1)</source>
         <translation>Commit (%1)</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="101"/>
+        <location filename="../qml/GitPanel.qml" line="115"/>
         <source>Коммит</source>
         <translation>Commit</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="199"/>
+        <location filename="../qml/GitPanel.qml" line="213"/>
         <source>Открыть файл</source>
         <translation>Open file</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="206"/>
+        <location filename="../qml/GitPanel.qml" line="220"/>
         <source>Отменить все изменения</source>
         <translation>Discard all changes</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="206"/>
-        <location filename="../qml/GitPanel.qml" line="342"/>
+        <location filename="../qml/GitPanel.qml" line="220"/>
+        <location filename="../qml/GitPanel.qml" line="360"/>
         <source>Отменить изменения</source>
         <translation>Discard changes</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="214"/>
+        <location filename="../qml/GitPanel.qml" line="229"/>
+        <source>Убрать всё из коммита</source>
+        <translation>Remove all from commit</translation>
+    </message>
+    <message>
+        <location filename="../qml/GitPanel.qml" line="229"/>
+        <source>Убрать из коммита</source>
+        <translation>Remove from commit</translation>
+    </message>
+    <message>
+        <location filename="../qml/GitPanel.qml" line="230"/>
+        <source>Отметить всё для коммита</source>
+        <translation>Mark all for commit</translation>
+    </message>
+    <message>
+        <location filename="../qml/GitPanel.qml" line="230"/>
+        <source>Отметить для коммита</source>
+        <translation>Mark for commit</translation>
+    </message>
+    <message>
+        <location filename="../qml/GitPanel.qml" line="232"/>
         <source>Убрать всё из индекса</source>
         <translation>Unstage all</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="214"/>
+        <location filename="../qml/GitPanel.qml" line="232"/>
         <source>Убрать из индекса</source>
         <translation>Unstage</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="215"/>
+        <location filename="../qml/GitPanel.qml" line="233"/>
         <source>Добавить всё в индекс</source>
         <translation>Stage all</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="215"/>
+        <location filename="../qml/GitPanel.qml" line="233"/>
         <source>Добавить в индекс</source>
         <translation>Stage</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="237"/>
+        <location filename="../qml/GitPanel.qml" line="255"/>
         <source>Папка не открыта</source>
         <translation>No folder open</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="238"/>
+        <location filename="../qml/GitPanel.qml" line="256"/>
         <source>Папка не является репозиторием Git</source>
         <translation>This folder is not a Git repository</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="244"/>
+        <location filename="../qml/GitPanel.qml" line="262"/>
         <source>Создать репозиторий</source>
         <translation>Create repository</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="255"/>
+        <location filename="../qml/GitPanel.qml" line="273"/>
         <source>  (текущая)</source>
         <translation>  (current)</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="263"/>
+        <location filename="../qml/GitPanel.qml" line="281"/>
         <source>Новая ветка…</source>
         <translation>New branch…</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="281"/>
+        <location filename="../qml/GitPanel.qml" line="299"/>
         <source>Новая ветка от «%1»</source>
         <translation>New branch from “%1”</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="288"/>
+        <location filename="../qml/GitPanel.qml" line="306"/>
         <source>Имя ветки</source>
         <translation>Branch name</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="317"/>
+        <location filename="../qml/GitPanel.qml" line="335"/>
         <source>Отменить изменения в «%1»?</source>
         <translation>Discard changes in “%1”?</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="318"/>
+        <location filename="../qml/GitPanel.qml" line="336"/>
         <source>Отменить изменения в файлах: %1?</source>
         <translation>Discard changes in %1 files?</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="327"/>
+        <location filename="../qml/GitPanel.qml" line="345"/>
         <source>Новые файлы будут удалены. Действие нельзя отменить.</source>
         <translation>New files will be deleted. This can’t be undone.</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="328"/>
+        <location filename="../qml/GitPanel.qml" line="346"/>
         <source>Файлы вернутся к версии из индекса. Действие нельзя отменить.</source>
         <translation>Files will be reverted to the staged version. This can’t be undone.</translation>
     </message>
     <message>
-        <location filename="../qml/GitPanel.qml" line="337"/>
+        <location filename="../qml/GitPanel.qml" line="355"/>
         <source>Отмена</source>
         <translation>Cancel</translation>
     </message>
@@ -375,24 +410,34 @@
 <context>
     <name>GitService</name>
     <message>
-        <location filename="../src/git/gitservice.cpp" line="325"/>
+        <location filename="../src/git/gitservice.cpp" line="356"/>
         <source>Введите сообщение коммита</source>
         <translation>Enter a commit message</translation>
     </message>
     <message>
-        <location filename="../src/git/gitservice.cpp" line="329"/>
+        <location filename="../src/git/gitservice.cpp" line="360"/>
         <source>Нет изменений в индексе: добавьте файлы кнопкой «+»</source>
         <translation>Nothing staged: add files with the “+” button</translation>
     </message>
     <message>
-        <location filename="../src/git/gitservice.cpp" line="474"/>
+        <location filename="../src/git/gitservice.cpp" line="361"/>
+        <source>Нет файлов для коммита: отметьте их кнопкой «+»</source>
+        <translation>No files to commit: mark them with the “+” button</translation>
+    </message>
+    <message>
+        <location filename="../src/git/gitservice.cpp" line="454"/>
         <source>%1 — индекс и HEAD</source>
         <translation>%1 — staged vs HEAD</translation>
     </message>
     <message>
-        <location filename="../src/git/gitservice.cpp" line="474"/>
+        <location filename="../src/git/gitservice.cpp" line="454"/>
         <source>%1 — изменения</source>
         <translation>%1 — changes</translation>
+    </message>
+    <message>
+        <location filename="../src/git/gitservice.cpp" line="467"/>
+        <source>%1 — коммит %2</source>
+        <translation>%1 — commit %2</translation>
     </message>
 </context>
 <context>
@@ -401,6 +446,79 @@
         <location filename="../qml/GoToLinePopup.qml" line="32"/>
         <source>Строка %1, или строка:столбец</source>
         <translation>Line %1, or line:column</translation>
+    </message>
+</context>
+<context>
+    <name>HistoryView</name>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="95"/>
+        <source>История  ·  %1  ·  ветка %2</source>
+        <translation>History  ·  %1  ·  branch %2</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="96"/>
+        <source>История</source>
+        <translation>History</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="106"/>
+        <source>Сообщение, автор или хэш (Enter)</source>
+        <translation>Message, author or hash (Enter)</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="119"/>
+        <source>Обновить</source>
+        <translation>Refresh</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="122"/>
+        <source>Закрыть (Esc)</source>
+        <translation>Close (Esc)</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="296"/>
+        <source>Папка проекта не под контролем версий</source>
+        <translation>The project folder is not under version control</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="297"/>
+        <source>Загрузка истории…</source>
+        <translation>Loading history…</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="297"/>
+        <source>Коммитов пока нет</source>
+        <translation>No commits yet</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="364"/>
+        <source>ветка %1</source>
+        <translation>branch %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="461"/>
+        <source>Переключиться на этот коммит</source>
+        <translation>Check out this commit</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="465"/>
+        <source>Новая ветка отсюда…</source>
+        <translation>New branch from here…</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="470"/>
+        <source>Копировать хэш</source>
+        <translation>Copy hash</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="488"/>
+        <source>Новая ветка от коммита %1</source>
+        <translation>New branch from commit %1</translation>
+    </message>
+    <message>
+        <location filename="../qml/HistoryView.qml" line="495"/>
+        <source>Имя ветки</source>
+        <translation>Branch name</translation>
     </message>
 </context>
 <context>
@@ -481,357 +599,394 @@
 <context>
     <name>Main</name>
     <message>
-        <location filename="../Main.qml" line="209"/>
+        <location filename="../Main.qml" line="306"/>
         <source>Файл</source>
         <translation>File</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="210"/>
+        <location filename="../Main.qml" line="307"/>
         <source>Открыть…</source>
         <translation>Open…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="211"/>
+        <location filename="../Main.qml" line="308"/>
         <source>Открыть папку…</source>
         <translation>Open folder…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="212"/>
+        <location filename="../Main.qml" line="309"/>
         <source>Закрыть папку</source>
         <translation>Close folder</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="215"/>
+        <location filename="../Main.qml" line="312"/>
         <source>Сохранить</source>
         <translation>Save</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="222"/>
+        <location filename="../Main.qml" line="319"/>
         <source>Закрыть вкладку</source>
         <translation>Close tab</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="227"/>
+        <location filename="../Main.qml" line="324"/>
         <source>Настройки…</source>
         <translation>Settings…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="229"/>
+        <location filename="../Main.qml" line="326"/>
         <source>Убрать из «Открыть с помощью»</source>
         <translation>Remove from “Open with”</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="229"/>
+        <location filename="../Main.qml" line="326"/>
         <source>Добавить в «Открыть с помощью»</source>
         <translation>Add to “Open with”</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="234"/>
+        <location filename="../Main.qml" line="331"/>
         <source>Не удалось изменить реестр</source>
         <translation>Could not change the registry</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="235"/>
+        <location filename="../Main.qml" line="332"/>
         <source>MyCodeApp добавлен в «Открыть с помощью» и меню папок</source>
         <translation>MyCodeApp was added to “Open with” and the folder menu</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="236"/>
+        <location filename="../Main.qml" line="333"/>
         <source>MyCodeApp убран из меню Проводника</source>
         <translation>MyCodeApp was removed from Explorer menus</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="240"/>
+        <location filename="../Main.qml" line="337"/>
         <source>Выход</source>
         <translation>Exit</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="243"/>
+        <location filename="../Main.qml" line="340"/>
         <source>Правка</source>
         <translation>Edit</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="244"/>
+        <location filename="../Main.qml" line="341"/>
         <source>Отменить</source>
         <translation>Undo</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="245"/>
+        <location filename="../Main.qml" line="342"/>
         <source>Повторить</source>
         <translation>Redo</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="247"/>
+        <location filename="../Main.qml" line="344"/>
         <source>Вырезать</source>
         <translation>Cut</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="248"/>
+        <location filename="../Main.qml" line="345"/>
         <source>Копировать</source>
         <translation>Copy</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="249"/>
+        <location filename="../Main.qml" line="346"/>
         <source>Вставить</source>
         <translation>Paste</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="251"/>
+        <location filename="../Main.qml" line="348"/>
         <source>Выделить всё</source>
         <translation>Select all</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="253"/>
+        <location filename="../Main.qml" line="350"/>
         <source>Выделить следующее вхождение</source>
         <translation>Select next occurrence</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="254"/>
+        <location filename="../Main.qml" line="351"/>
         <source>Добавить курсор выше</source>
         <translation>Add cursor above</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="255"/>
+        <location filename="../Main.qml" line="352"/>
         <source>Добавить курсор ниже</source>
         <translation>Add cursor below</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="258"/>
+        <location filename="../Main.qml" line="355"/>
         <source>Поиск</source>
         <translation>Search</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="259"/>
+        <location filename="../Main.qml" line="356"/>
         <source>Найти…</source>
         <translation>Find…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="260"/>
+        <location filename="../Main.qml" line="357"/>
         <source>Следующее совпадение</source>
         <translation>Next match</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="261"/>
+        <location filename="../Main.qml" line="358"/>
         <source>Предыдущее совпадение</source>
         <translation>Previous match</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="263"/>
+        <location filename="../Main.qml" line="360"/>
         <source>Перейти к строке…</source>
         <translation>Go to line…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="264"/>
+        <location filename="../Main.qml" line="361"/>
         <source>Перейти к файлу…</source>
         <translation>Go to file…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="265"/>
+        <location filename="../Main.qml" line="362"/>
         <source>Найти в проекте…</source>
         <translation>Find in project…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="268"/>
+        <location filename="../Main.qml" line="365"/>
         <source>Код</source>
         <translation>Code</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="269"/>
+        <location filename="../Main.qml" line="366"/>
         <source>Предложить варианты</source>
         <translation>Trigger suggestions</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="270"/>
+        <location filename="../Main.qml" line="367"/>
         <source>Перейти к определению</source>
         <translation>Go to definition</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="271"/>
+        <location filename="../Main.qml" line="368"/>
         <source>Найти ссылки</source>
         <translation>Find references</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="272"/>
+        <location filename="../Main.qml" line="369"/>
         <source>Назад</source>
         <translation>Go back</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="274"/>
+        <location filename="../Main.qml" line="371"/>
         <source>Переименовать символ</source>
         <translation>Rename symbol</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="277"/>
+        <location filename="../Main.qml" line="374"/>
         <source>Свои сниппеты для этого языка…</source>
         <translation>User snippets for this language…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="281"/>
+        <location filename="../Main.qml" line="378"/>
         <source>Форматировать документ</source>
         <translation>Format document</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="283"/>
+        <location filename="../Main.qml" line="380"/>
         <source>Проблемы</source>
         <translation>Problems</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="286"/>
+        <location filename="../Main.qml" line="383"/>
         <source>Git</source>
         <translation>Git</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="287"/>
+        <location filename="../Main.qml" line="384"/>
         <source>Панель Git</source>
         <translation>Git panel</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="288"/>
+        <location filename="../Main.qml" line="385"/>
         <source>Изменения файла</source>
         <translation>File changes</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="290"/>
+        <location filename="../Main.qml" line="386"/>
+        <source>История</source>
+        <translation>History</translation>
+    </message>
+    <message>
+        <location filename="../Main.qml" line="388"/>
         <source>Следующее изменение</source>
         <translation>Next change</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="291"/>
+        <location filename="../Main.qml" line="389"/>
         <source>Предыдущее изменение</source>
         <translation>Previous change</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="295"/>
+        <location filename="../Main.qml" line="393"/>
         <source>Добавить файл в индекс</source>
         <translation>Stage file</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="299"/>
+        <location filename="../Main.qml" line="397"/>
         <source>Обновить состояние</source>
         <translation>Refresh status</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="303"/>
+        <location filename="../Main.qml" line="401"/>
         <source>Плагины</source>
         <translation>Plugins</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="317"/>
+        <location filename="../Main.qml" line="415"/>
         <source>Управление плагинами…</source>
         <translation>Manage plugins…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="361"/>
+        <location filename="../Main.qml" line="425"/>
+        <location filename="../Main.qml" line="814"/>
+        <source>Открыть справа</source>
+        <translation>Open to the Side</translation>
+    </message>
+    <message>
+        <location filename="../Main.qml" line="426"/>
+        <location filename="../Main.qml" line="661"/>
+        <source>Закрыть правую половину</source>
+        <translation>Close Right Half</translation>
+    </message>
+    <message>
+        <location filename="../Main.qml" line="432"/>
+        <source>Перенос строк</source>
+        <translation>Word Wrap</translation>
+    </message>
+    <message>
+        <location filename="../Main.qml" line="432"/>
+        <source>Не переносить строки</source>
+        <translation>Disable Word Wrap</translation>
+    </message>
+    <message>
+        <location filename="../Main.qml" line="432"/>
+        <source>Переносить строки</source>
+        <translation>Enable Word Wrap</translation>
+    </message>
+    <message>
+        <location filename="../Main.qml" line="463"/>
         <source>Справка</source>
         <translation>Help</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="362"/>
+        <location filename="../Main.qml" line="464"/>
         <source>Горячие клавиши…</source>
         <translation>Keyboard shortcuts…</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="363"/>
+        <location filename="../Main.qml" line="465"/>
         <source>Открыть папку данных</source>
         <translation>Open data folder</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="365"/>
+        <location filename="../Main.qml" line="467"/>
         <source>О программе</source>
         <translation>About</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="320"/>
+        <location filename="../Main.qml" line="580"/>
+        <source>Закрыть мини-карту</source>
+        <translation>Close Minimap</translation>
+    </message>
+    <message>
+        <location filename="../Main.qml" line="418"/>
         <source>Вид</source>
         <translation>View</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="321"/>
+        <location filename="../Main.qml" line="419"/>
         <source>Свернуть блок</source>
         <translation>Fold block</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="322"/>
+        <location filename="../Main.qml" line="420"/>
         <source>Развернуть блок</source>
         <translation>Unfold block</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="324"/>
+        <location filename="../Main.qml" line="422"/>
         <source>Свернуть все</source>
         <translation>Fold all</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="325"/>
+        <location filename="../Main.qml" line="423"/>
         <source>Развернуть все</source>
         <translation>Unfold all</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="327"/>
+        <location filename="../Main.qml" line="428"/>
         <source>Перейти в боковую панель</source>
         <translation>Focus sidebar</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="328"/>
+        <location filename="../Main.qml" line="429"/>
         <source>Перейти в редактор</source>
         <translation>Focus editor</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="329"/>
+        <location filename="../Main.qml" line="430"/>
         <source>Проводник</source>
         <translation>Explorer</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="330"/>
+        <location filename="../Main.qml" line="431"/>
         <source>Показать или скрыть боковую панель</source>
         <translation>Toggle sidebar</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="330"/>
+        <location filename="../Main.qml" line="431"/>
         <source>Скрыть боковую панель</source>
         <translation>Hide sidebar</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="330"/>
+        <location filename="../Main.qml" line="431"/>
         <source>Показать боковую панель</source>
         <translation>Show sidebar</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="331"/>
+        <location filename="../Main.qml" line="433"/>
         <source>Показать или скрыть миникарту</source>
         <translation>Toggle minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="331"/>
+        <location filename="../Main.qml" line="433"/>
         <source>Скрыть миникарту</source>
         <translation>Hide minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="331"/>
+        <location filename="../Main.qml" line="433"/>
         <source>Показать миникарту</source>
         <translation>Show minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="332"/>
+        <location filename="../Main.qml" line="434"/>
         <source>Миникарта крупнее</source>
         <translation>Larger minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="333"/>
+        <location filename="../Main.qml" line="435"/>
         <source>Миникарта мельче</source>
         <translation>Smaller minimap</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="337"/>
+        <location filename="../Main.qml" line="439"/>
         <source>Тема</source>
         <translation>Theme</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="343"/>
+        <location filename="../Main.qml" line="445"/>
         <source>  (текущая)</source>
         <translation>  (current)</translation>
     </message>
     <message>
-        <location filename="../Main.qml" line="351"/>
+        <location filename="../Main.qml" line="453"/>
         <source>Создать свою тему…</source>
         <translation>Create custom theme…</translation>
     </message>
@@ -1091,19 +1246,19 @@
 <context>
     <name>Sidebar</name>
     <message>
-        <location filename="../qml/Sidebar.qml" line="49"/>
+        <location filename="../qml/Sidebar.qml" line="50"/>
         <source>Проводник</source>
         <translation>Explorer</translation>
     </message>
     <message>
-        <location filename="../qml/Sidebar.qml" line="49"/>
+        <location filename="../qml/Sidebar.qml" line="50"/>
         <source>Поиск</source>
         <translation>Search</translation>
     </message>
     <message>
-        <location filename="../qml/Sidebar.qml" line="49"/>
-        <source>Git</source>
-        <translation>Git</translation>
+        <location filename="../qml/Sidebar.qml" line="51"/>
+        <source>Контроль версий</source>
+        <translation>Version control</translation>
     </message>
 </context>
 <context>
@@ -1202,29 +1357,47 @@
 <context>
     <name>git</name>
     <message>
-        <location filename="../src/git/gitrepo.cpp" line="32"/>
+        <location filename="../src/git/gitrepo.cpp" line="37"/>
         <source>Неизвестная ошибка git</source>
         <translation>Unknown git error</translation>
     </message>
     <message>
-        <location filename="../src/git/gitrepo.cpp" line="298"/>
+        <location filename="../src/git/gitrepo.cpp" line="335"/>
         <source>Не удалось удалить %1</source>
         <translation>Could not delete %1</translation>
     </message>
     <message>
-        <location filename="../src/git/gitrepo.cpp" line="315"/>
+        <location filename="../src/git/gitrepo.cpp" line="352"/>
         <source>Идёт слияние или перебазирование — завершите его в git</source>
         <translation>A merge or rebase is in progress — finish it in git</translation>
     </message>
     <message>
-        <location filename="../src/git/gitrepo.cpp" line="318"/>
+        <location filename="../src/git/gitrepo.cpp" line="355"/>
         <source>Не заданы имя и почта автора: git config --global user.name / user.email</source>
         <translation>Author name and email are not set: git config --global user.name / user.email</translation>
     </message>
     <message>
-        <location filename="../src/git/gitrepo.cpp" line="364"/>
+        <location filename="../src/git/gitrepo.cpp" line="406"/>
         <source>Сначала нужен хотя бы один коммит</source>
         <translation>Make at least one commit first</translation>
+    </message>
+</context>
+<context>
+    <name>hg::Repository</name>
+    <message>
+        <location filename="../src/git/hgrepo.cpp" line="172"/>
+        <source>Mercurial не установлен (нет программы hg)</source>
+        <translation>Mercurial is not installed (no hg program)</translation>
+    </message>
+    <message>
+        <location filename="../src/git/hgrepo.cpp" line="362"/>
+        <source>Не удалось удалить %1</source>
+        <translation>Could not delete %1</translation>
+    </message>
+    <message>
+        <location filename="../src/git/hgrepo.cpp" line="382"/>
+        <source>Нет файлов для коммита: отметьте их кнопкой «+»</source>
+        <translation>No files to commit: mark them with the “+” button</translation>
     </message>
 </context>
 </TS>

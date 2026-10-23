@@ -12,7 +12,7 @@
 4. [Редактор — `src/gui`](#4-редактор--srcgui)
 5. [Сервисы — `src/services`](#5-сервисы--srcservices)
 6. [Языковые серверы — `src/lsp`](#6-языковые-серверы--srclsp)
-7. [Git — `src/git`](#7-git--srcgit)
+7. [Контроль версий — `src/git`](#7-контроль-версий--srcgit)
 8. [API плагинов — `include/mycodeapp`](#8-api-плагинов--includemycodeapp)
 9. [Интерфейс — `qml`](#9-интерфейс--qml)
 10. [Точка входа — `main.cpp`](#10-точка-входа--maincpp)
@@ -45,7 +45,9 @@ flowchart TB
         Document --> TextBuffer --> PieceTable --> MappedText
     end
     LspManager --> LspClient
-    GitService --> Repository[git::Repository]
+    GitService --> Repository[vcs::Repository]
+    Repository --> GitRepo[git::Repository] & HgRepo[hg::Repository]
+    GitService --> HistoryModel
 
     Main --> EditorView & DocumentManager & Workspace & LspManager & GitService & PluginManager
     EditorView --> Document
@@ -181,7 +183,18 @@ flowchart TB
 ### `EditorView` (`QQuickItem`, QML: `EditorView`)
 Редактор на нодах Qt Scene Graph. Показывает один `Document` (свойство
 `document`); при переключении вкладок запоминает для каждого документа
-курсоры, прокрутку и свёрнутые блоки (`ViewState`).
+курсоры, прокрутку и свёрнутые блоки (`ViewState`). Один документ может быть
+открыт в двух видах (разделённый экран): вид, забравший журнал правок
+(`takeEdits`), раздаёт его остальным через `Document::shareEdits` →
+`editsShared`; те сдвигают свёртку, курсоры и дерево tree-sitter.
+
+**Ряды и перенос.** Ряд — строка экрана. Без переноса ряд = видимая
+(не свёрнутая) строка (`FoldSet`). С переносом (`wordWrap`) строка занимает
+несколько рядов: `editing::wrapStarts` даёт колонки начала рядов (по словам,
+продолжения сдвинуты на отступ), `m_wrapExtra` — лишние ряды каждой строки
+(при правке пересчитываются только задетые строки, `spliceWrap`),
+`m_wrapBefore` — накопленная сумма с учётом свёртки. Всё экранное идёт через
+`rowOf`/`lineAt`/`screenOf`/`visualAtScreen`/`spanRects`.
 
 **Рендер.** `updatePaintNode` собирает ноды только для видимых рядов
 и окна колонок (строки по 10 МБ не раскладываются целиком): слои фона diff,
@@ -205,7 +218,7 @@ flowchart TB
 | Сворачивание | `foldAtCursor`, `unfoldAtCursor`, `foldAll`, `unfoldAll` |
 | Поиск | `find`, `findNext`, `findPrev`, `clearSearch`; сигнал `searchUpdated` |
 | Git | `setChangeMarks(doc, marks)` — полоски в gutter; `setDiffLines(doc, kinds, numbers)` — режим просмотра изменений; `gotoChange(direction)` |
-| LSP | `setDiagnostics`, `wordBeforeCursor`, `wordAtCursor`, `caretRectangle`; сигналы `textTyped`, `hoverRest`, `hoverLeft`, `definitionClicked` |
+| LSP | `setDiagnostics`, `wordBeforeCursor`, `wordAtCursor`, `colorAt(line, column)` (цвет под мышью: `color`, `hex`, `rgb`, `hsl`), `caretRectangle`; сигналы `textTyped`, `hoverRest`, `hoverLeft`, `definitionClicked` |
 | Сессия | `viewStateOf(doc)`, `setViewStateOf(doc, state)` |
 | Для миникарты | `styledLines(firstRow, count, maxColumn)`, `rowCount`, `textFont`, сигнал `contentChanged` |
 
@@ -266,10 +279,16 @@ flowchart TB
 предыдущий. Результат — `resultsReady(QVector<Match>)`.
 
 ### `SyntaxHighlighter`
-Подсветка на tree-sitter (C/C++, Python, QML). Разбор — в фоне по снимку,
+Подсветка на tree-sitter (C/C++, Python, QML, Markdown, CMake). Запросы
+поддерживают условия `#match?`, `#eq?`, `#any-of?` (и `not-`) по однострочным узлам. Разбор — в фоне по снимку,
 одна задача за раз; правки сразу применяются к текущему дереву (`ts_tree_edit`),
 правки во время разбора докатываются на результат. `highlightLines` отдаёт
-фрагменты для видимых строк; цвет — `color(rule)` из темы. Файлы больше
+фрагменты для видимых строк; цвет — `color(rule)` из темы, начертание (жирный,
+курсив, зачёркнутый, подчёркнутый) — `fontStyle(rule)`. Вложенные языки
+(запрос `<язык>-injections.scm`: захваты `@inline`, `@injection.language` +
+`@injection.content`) разбираются тем же фоновым заданием отдельными деревьями
+по участкам основного: разметка абзацев Markdown — грамматикой markdown-inline,
+код в ``` — грамматикой названного языка (`languageNamed`). Файлы больше
 8 млн символов не разбираются. Новый язык: грамматика (FetchContent) +
 `assets/queries/<язык>.scm` + строка в `languageFor`.
 
@@ -360,31 +379,62 @@ flowchart TB
 
 ---
 
-## 7. Git — `src/git`
+## 7. Контроль версий — `src/git`
+
+### `vcs::Repository` (`vcs.h`)
+Общий интерфейс Git и Mercurial: синхронный, вызывается только из фонового
+потока, объект в другие потоки не передаётся. `kind`, `hasIndex`, `workdir`,
+`watchPaths` (служебные файлы для слежения), `status`, `branch`, `branches`,
+`indexBlob`, `headBlob`, `stage`, `unstage`, `discard`, `commit`, `checkout`,
+`createBranch`; история — `log(limit)` (все ветки, родители ниже детей),
+`commitFiles(id)`, `fileAt(id, path)`, `checkoutCommit(id)`,
+`createBranchAt(name, id)`. Ошибки — текстом в `error`.
+
+- `vcs::discover(path)` — ближайший вверх по папкам репозиторий `.git` или `.hg`
+  (вложенный важнее внешнего); `vcs::init(kind, path)`.
+- `vcs::diffLines(old, new)` — построчные участки (`Hunk`) без контекста.
+- `vcs::layoutGraph(commits)` — раскладка графа истории: для каждого коммита
+  дорожка, цвет и рёбра ряда (`Through` — мимо, `In` — сверху в точку,
+  `Out` — к родителю).
 
 ### `git::Repository`
-Синхронная обёртка libgit2 (RAII для всех объектов libgit2). Вызывается только
-из фонового потока; объект в другие потоки не передаётся.
-`discover(path)` ищет репозиторий вверх по папкам; `status`, `branch`,
-`branches`, `indexBlob`, `headBlob`, `stage`, `unstage`, `discard`, `commit`
-(подпись из конфигурации git), `checkout` (безопасный — не трогает файлы
-с правками), `createBranch`. Ошибки — текстом в `error`.
-
-`git::diffLines(old, new)` — построчные участки (`Hunk`) без контекста;
+Реализация на libgit2 (RAII для всех объектов libgit2). `commit` берёт подпись из
+конфигурации git, `checkout` безопасный — не трогает файлы с правками.
 `git::Library` — инициализация libgit2 на время жизни объекта.
 
+### `hg::Repository`
+Реализация через командный сервер `hg serve --cmdserver pipe`: один процесс на
+репозиторий и поток, вывод — шаблонами с разделителями `\x1f`/`\x1e`. Кодировка —
+из приветствия сервера (на Windows — локальная, cp1251; `HGENCODING` не задаётся,
+иначе ломаются русские пути). Индекса у Mercurial нет: отмеченные «+» файлы
+хранятся в сессии и уходят в коммит списком (`hg commit --addremove`). Ветки —
+закладки (bookmarks) и именованные ветки; переключение — `hg update --check`.
+`closeSessions()` завершает серверы текущего потока (они держат папку открытой).
+
+### `HistoryModel` (QML: `HistoryModel`, создаёт `GitService`)
+Список коммитов и раскладка графа. Роли: `commitId`, `shortId`, `summary`,
+`message`, `author`, `email`, `date`, `refs` (`[{name, kind, current}]`),
+`graph` (`{lane, color, width, edges}`), `branch`. `maxLanes` — ширина графа,
+`find(text, from)` — следующий коммит по сообщению, автору или хэшу.
+
 ### `GitService` (QML: `GitService`)
-Git папки проекта. Все операции — в одном фоновом потоке, репозиторий
-открывается на задачу. Статус обновляется при смене папки, сохранении, фокусе
-окна, изменении `.git/index`, `HEAD`, `refs/heads` и опросом, пока окно активно.
+Контроль версий папки проекта. Все операции — в одном фоновом потоке,
+репозиторий открывается на задачу. Статус обновляется при смене папки,
+сохранении, фокусе окна, изменении служебных файлов (`watchPaths`) и опросом,
+пока окно активно. Открытая история перечитывается только при коммите, смене
+ветки и правках репозитория извне.
 
 | Член | Назначение |
 |---|---|
-| `available`, `branch`, `branches`, `changes`, `stagedChanges`, `busy` | состояние для панели и строки состояния |
+| `available`, `kind`, `hasIndex`, `branch`, `branches`, `changes`, `stagedChanges`, `busy` | состояние для панели и строки состояния |
 | `decorationOf(path, isDir)` | буква для дерева (у папки — по самому важному изменению внутри) |
 | `stage`, `unstage`, `stageAll`, `unstageAll`, `discard`, `commit`, `checkout`, `createBranch`, `initRepository` | операции; ошибка — сигнал `message` |
 | `updateMarks(editor)` | полоски изменений текущего текста против индекса |
 | `showDiff(path, staged, target)` | собрать в фоне виртуальный документ изменений и показать в `target`; готовность — `diffReady` |
+| `history`, `historyLoading`, `loadHistory()` | история для вкладки «История» (до 5000 коммитов) |
+| `loadCommitFiles(id)` → `commitFilesReady(id, files)` | файлы коммита в формате `changes` |
+| `showCommitDiff(id, relativePath, target)` | изменения файла в коммите против первого родителя |
+| `checkoutCommit(id)`, `createBranchAt(name, id)` | действия из истории |
 
 ---
 
@@ -436,7 +486,8 @@ public:
 | `Sidebar.qml` | боковая панель: `FileTree.qml`, `SearchPanel.qml`, `GitPanel.qml` |
 | `FindBar.qml`, `QuickOpen.qml`, `GoToLinePopup.qml` | поиск в файле, Ctrl+P, переход к строке |
 | `CompletionPopup.qml`, `HoverPopup.qml`, `RenamePopup.qml`, `BottomPanel.qml` | LSP: автодополнение, подсказки, переименование, «Проблемы» и ссылки |
-| `DiffView.qml` | просмотр изменений файла поверх редактора |
+| `DiffView.qml` | просмотр изменений файла (рабочей копии или в коммите) поверх редактора |
+| `HistoryView.qml` | история: граф коммитов на `Canvas`, сообщение и файлы выбранного коммита, меню действий |
 | `SettingsDialog.qml`, `PluginsPage.qml` | настройки: внешний вид, клавиши, плагины |
 | `CloseDialog.qml`, `ReloadDialog.qml`, `AboutDialog.qml` | диалоги |
 | `FileIcon.qml`, `IconButton.qml`, `FlatButton.qml`, `SearchField.qml`, `CrossIcon.qml` | элементы оформления |

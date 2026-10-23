@@ -41,7 +41,19 @@ FetchContent_Declare(tree_sitter_qmljs
     GIT_TAG 0.3.1
     GIT_SHALLOW TRUE
     SOURCE_SUBDIR _no_cmake)
-FetchContent_MakeAvailable(tree_sitter tree_sitter_cpp tree_sitter_python tree_sitter_qmljs)
+# Markdown — две грамматики: блоки и разметка внутри абзацев (MIT, tree-sitter-grammars)
+FetchContent_Declare(tree_sitter_markdown
+    GIT_REPOSITORY https://github.com/tree-sitter-grammars/tree-sitter-markdown.git
+    GIT_TAG v0.5.3
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR _no_cmake)
+FetchContent_Declare(tree_sitter_cmake
+    GIT_REPOSITORY https://github.com/uyha/tree-sitter-cmake.git
+    GIT_TAG v0.7.5
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR _no_cmake)
+FetchContent_MakeAvailable(tree_sitter tree_sitter_cpp tree_sitter_python tree_sitter_qmljs
+                           tree_sitter_markdown tree_sitter_cmake)
 
 # Окно без системной рамки со своей строкой заголовка (прилипание к краям и Snap
 # Layouts сохраняются). Статически — без лишних DLL рядом с exe.
@@ -77,6 +89,18 @@ add_library(ts_qmljs STATIC
     ${tree_sitter_qmljs_SOURCE_DIR}/src/scanner.c)
 target_include_directories(ts_qmljs PRIVATE ${tree_sitter_qmljs_SOURCE_DIR}/src)
 
+set(TS_MD ${tree_sitter_markdown_SOURCE_DIR}/tree-sitter-markdown)
+set(TS_MD_INLINE ${tree_sitter_markdown_SOURCE_DIR}/tree-sitter-markdown-inline)
+add_library(ts_markdown STATIC ${TS_MD}/src/parser.c ${TS_MD}/src/scanner.c)
+target_include_directories(ts_markdown PRIVATE ${TS_MD}/src)
+add_library(ts_markdown_inline STATIC ${TS_MD_INLINE}/src/parser.c ${TS_MD_INLINE}/src/scanner.c)
+target_include_directories(ts_markdown_inline PRIVATE ${TS_MD_INLINE}/src)
+
+add_library(ts_cmake STATIC
+    ${tree_sitter_cmake_SOURCE_DIR}/src/parser.c
+    ${tree_sitter_cmake_SOURCE_DIR}/src/scanner.c)
+target_include_directories(ts_cmake PRIVATE ${tree_sitter_cmake_SOURCE_DIR}/src)
+
 # libgit2: статически и без сети — только локальные операции с репозиторием
 FetchContent_Declare(libgit2
     GIT_REPOSITORY https://github.com/libgit2/libgit2.git
@@ -101,8 +125,10 @@ FetchContent_MakeAvailable(libgit2)
 set(SYNTAX_SOURCES
     src/services/syntaxhighlighter.h src/services/syntaxhighlighter.cpp
     src/services/palette.h src/services/palette.cpp)
-set(SYNTAX_LIBS ts_runtime ts_cpp ts_python ts_qmljs)
-set(SYNTAX_QUERIES assets/queries/cpp.scm assets/queries/python.scm assets/queries/qml.scm)
+set(SYNTAX_LIBS ts_runtime ts_cpp ts_python ts_qmljs ts_markdown ts_markdown_inline ts_cmake)
+set(SYNTAX_QUERIES assets/queries/cpp.scm assets/queries/python.scm assets/queries/qml.scm
+    assets/queries/markdown.scm assets/queries/markdown-injections.scm assets/queries/markdown-inline.scm
+    assets/queries/cmake.scm)
 
 set(CORE_SOURCES
     src/core/piecetable.h src/core/piecetable.cpp
@@ -113,6 +139,10 @@ set(CORE_SOURCES
     src/core/mappedtext.h src/core/mappedtext.cpp
     src/core/snippet.h src/core/snippet.cpp
 )
+set(VCS_SOURCES
+    src/git/vcs.h src/git/vcs.cpp
+    src/git/gitrepo.h src/git/gitrepo.cpp
+    src/git/hgrepo.h src/git/hgrepo.cpp)
 
 qt_add_executable(appMyCodeApp
     main.cpp
@@ -120,6 +150,9 @@ qt_add_executable(appMyCodeApp
 )
 if(WIN32)
     target_sources(appMyCodeApp PRIVATE assets/icon/app.rc)
+    # windres не сообщает ninja о файлах, подключённых из .rc
+    set_source_files_properties(assets/icon/app.rc PROPERTIES
+        OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/app.ico)
 endif()
 
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
@@ -130,10 +163,10 @@ qt_add_qml_module(appMyCodeApp
         qml/Theme.qml qml/AppMenu.qml qml/AppMenuSeparator.qml qml/CrossIcon.qml
         qml/IconButton.qml qml/FlatButton.qml qml/TabStrip.qml qml/FindBar.qml
         qml/StatusBar.qml qml/EmptyState.qml qml/LoadOverlay.qml qml/CloseDialog.qml
-        qml/FileIcon.qml qml/SearchField.qml qml/FileTree.qml qml/SearchPanel.qml
+        qml/FileIcon.qml qml/fileicons.js qml/SearchField.qml qml/FileTree.qml qml/SearchPanel.qml
         qml/Sidebar.qml qml/QuickOpen.qml qml/ReloadDialog.qml
         qml/CompletionPopup.qml qml/HoverPopup.qml qml/BottomPanel.qml qml/RenamePopup.qml
-        qml/GitPanel.qml qml/DiffView.qml qml/Command.qml qml/SettingsDialog.qml qml/PluginsPage.qml qml/GoToLinePopup.qml qml/AboutDialog.qml
+        qml/GitPanel.qml qml/DiffView.qml qml/HistoryView.qml qml/Command.qml qml/SettingsDialog.qml qml/PluginsPage.qml qml/GoToLinePopup.qml qml/AboutDialog.qml
         qml/TitleBar.qml qml/WindowButton.qml qml/ActivityBar.qml qml/ActivityButton.qml
         qml/LineIcon.qml qml/IslandCorners.qml
         SOURCES src/gui/editerview.h src/gui/editerview.cpp
@@ -143,6 +176,7 @@ qt_add_qml_module(appMyCodeApp
                 src/services/projectsearch.h src/services/projectsearch.cpp
                 src/lsp/lspmanager.h src/lsp/lspmanager.cpp
                 src/git/gitservice.h src/git/gitservice.cpp
+                src/git/historymodel.h src/git/historymodel.cpp
                 src/services/shellintegration.h src/services/shellintegration.cpp
                 src/services/thememanager.h src/services/thememanager.cpp
                 src/services/keymap.h src/services/keymap.cpp
@@ -160,7 +194,7 @@ target_sources(appMyCodeApp PRIVATE
     src/services/recovery.h src/services/recovery.cpp
     src/services/ignorerules.h src/services/ignorerules.cpp
     src/lsp/lspclient.h src/lsp/lspclient.cpp
-    src/git/gitrepo.h src/git/gitrepo.cpp
+    ${VCS_SOURCES}
     src/services/singleinstance.h src/services/singleinstance.cpp
     src/services/appsettings.h src/services/appsettings.cpp
     ${SYNTAX_SOURCES}
@@ -296,7 +330,7 @@ target_include_directories(test_document PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_document PRIVATE Qt6::Test)
 add_test(NAME document COMMAND test_document)
 
-qt_add_executable(test_git src/git/gitrepo.h src/git/gitrepo.cpp tests/git_test.cpp)
+qt_add_executable(test_git ${VCS_SOURCES} tests/git_test.cpp)
 target_include_directories(test_git PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(test_git SYSTEM PRIVATE ${libgit2_SOURCE_DIR}/include)
 target_link_libraries(test_git PRIVATE Qt6::Test libgit2package)

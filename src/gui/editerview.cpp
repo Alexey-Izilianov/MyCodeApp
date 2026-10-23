@@ -9,6 +9,7 @@
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QQuickWindow>
+#include <QRegularExpression>
 #include <QSGClipNode>
 #include <QSGFlatColorMaterial>
 #include <QSGGeometryNode>
@@ -30,7 +31,9 @@ namespace {
 const EditorColors &colors() { return Palette::instance().editor(); }
 
 constexpr int kColumnMargin = 256;  // запас колонок при раскладке длинных строк
-constexpr int kLongLine = 10000;    // длиннее — ширину считаем без учёта табуляций
+constexpr int kLongLine = 10000;    // длиннее — ширину считаем без учёта табуляций; не переносим
+constexpr int kMaxWrapLines = 100000; // больше строк или символов — без переноса: полный
+constexpr int kMaxWrapChars = 4 * 1024 * 1024; // пересчёт рядов при смене ширины
 constexpr int kFoldAllMaxLines = 500000;
 constexpr int kEnclosingSearch = 2000; // насколько выше курсора искать охватывающий блок
 
@@ -101,12 +104,13 @@ EditorView::EditorView(QQuickItem *parent)
         if (!m_document)
             return;
         // Символ под мышью (а не ближайшая граница, как у клика)
-        const int line = lineAt(int((m_hoverPos.y() + m_scrollY) / m_lineHeight));
-        const int visual = int((m_hoverPos.x() - textLeft() + m_scrollX) / m_charWidth);
-        const QString text = buffer().lineAt(line);
-        const int column = editing::columnAtVisual(text, visual);
-        if (column < text.size() && editing::visualColumn(text, column) <= visual)
-            emit hoverRest(line, column, m_hoverPos.x(), m_hoverPos.y());
+        const Cursor v = visualAt(m_hoverPos, false);
+        const QString text = buffer().lineAt(v.line);
+        const int column = editing::columnAtVisual(text, v.column);
+        const int pointed = qFloor((m_hoverPos.x() - textLeft() + m_scrollX) / m_charWidth);
+        if (column < text.size() && editing::visualColumn(text, column) <= v.column
+            && screenOf({v.line, column}).x() >= pointed - 1) // правее конца ряда — не над символом
+            emit hoverRest(v.line, column, m_hoverPos.x(), m_hoverPos.y());
     });
 
     m_caretTimer.setInterval(530);
@@ -159,15 +163,14 @@ void EditorView::setDocument(QObject *object)
     m_scrollX = state.scrollX;
     m_scrollY = state.scrollY;
     m_folds = state.folds;
+    invalidateWrap();
     if (doc)
         normalizeCarets(); // файл мог стать короче, пока вкладка была в фоне
 
     const QString path = filePath();
     m_highlighter.setLanguageForFile(path);
-    if (m_syntax.setLanguageForFile(path) && doc) {
-        doc->takeEdits(); // правки до показа во вью дерево не касаются
+    if (m_syntax.setLanguageForFile(path) && doc)
         m_syntax.reset(buffer().snapshot());
-    }
     m_indent = doc ? editing::detectIndent(buffer()) : editing::IndentStyle{};
     m_python = language() == QStringLiteral("Python");
 
@@ -195,6 +198,16 @@ void EditorView::track(Document *doc)
         m_changeMarks.remove(doc);
         m_diffLines.remove(doc);
     });
+    connect(doc, &Document::changed, this, [this, doc](const QVector<TextBuffer::Edit> &edits, bool overflow) {
+        if (doc == m_document) {
+            applyDocumentEdits(edits, overflow);
+        } else if (auto state = m_viewStates.find(doc); state != m_viewStates.end()) {
+            if (overflow)
+                state->folds.clear();
+            for (const TextBuffer::Edit &e : edits)
+                state->folds.applyEdit(e);
+        }
+    });
     connect(doc, &Document::reloaded, this, [this, doc] {
         if (doc == m_document)
             documentReloaded();
@@ -206,7 +219,7 @@ void EditorView::track(Document *doc)
 void EditorView::documentReloaded()
 {
     m_folds.clear();
-    m_document->takeEdits();
+    invalidateWrap();
     if (m_syntax.hasLanguage())
         m_syntax.reset(buffer().snapshot());
     clearSearch();
@@ -253,7 +266,7 @@ void EditorView::applyTextEdits(const QVariantList &edits, int caretEdit, int ca
     for (const Caret &c : std::as_const(m_carets))
         caretOffsets.append({shifted(buffer().offsetOf(c.cursor)), shifted(buffer().offsetOf(c.anchor))});
 
-    const QVector<Cursor> ends = m_document->replace(parts, EditKind::Other, selections());
+    const QVector<Cursor> ends = selfEdit([&] { return m_document->replace(parts, EditKind::Other, selections()); });
     if (caretEdit >= 0 && caretEdit < ends.size()) {
         const int end = buffer().offsetOf(ends.at(caretEdit));
         const Cursor c = buffer().positionOf(end - int(parts.at(caretEdit).text.size()) + caretOffset);
@@ -430,12 +443,68 @@ QString EditorView::wordAtCursor() const
     return buffer().lineAt(c.line).mid(from, to - from).trimmed();
 }
 
+QVariantMap EditorView::colorAt(int line, int column) const
+{
+    if (!m_document || line < 0 || line >= buffer().lineCount())
+        return {};
+    static const QRegularExpression literal(
+        QStringLiteral("(?<![\\w#])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})\\b"
+                       "|\\brgba?\\(\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})\\s*,\\s*(\\d{1,3})\\s*(?:,\\s*([\\d.]+%?)\\s*)?\\)"));
+    // В QML и Qt-стилях восемь цифр — #AARRGGBB, в остальных (CSS) — #RRGGBBAA
+    const QString suffix = QFileInfo(filePath()).suffix().toLower();
+    const bool alphaFirst = suffix == QLatin1String("qml") || suffix == QLatin1String("qss");
+
+    // Окно вокруг точки: литерал цвета короче 40 символов, а строка бывает в мегабайты
+    const int from = qMax(0, column - 48);
+    const QString text = buffer().textAt(buffer().offsetOf({line, from}),
+                                         qMin(96, buffer().lineLength(line) - from));
+    const int at = column - from;
+    for (auto it = literal.globalMatch(text); it.hasNext();) {
+        const QRegularExpressionMatch m = it.next();
+        if (at < m.capturedStart() || at >= m.capturedEnd())
+            continue;
+        QColor color;
+        if (const QString hex = m.captured(1); !hex.isEmpty()) {
+            QString digits = hex;
+            if (hex.size() <= 4) { // #rgb(a) -> #rrggbb(aa)
+                digits.clear();
+                for (QChar c : hex)
+                    digits += QString(2, c);
+            }
+            const uint value = digits.toUInt(nullptr, 16);
+            if (digits.size() == 6)
+                color = QColor::fromRgb(value);
+            else if (alphaFirst && hex.size() == 8)
+                color = QColor::fromRgba(value);
+            else
+                color = QColor((value >> 24) & 0xff, (value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff);
+        } else {
+            color = QColor(qMin(m.captured(2).toInt(), 255), qMin(m.captured(3).toInt(), 255),
+                           qMin(m.captured(4).toInt(), 255));
+            if (const QString alpha = m.captured(5); !alpha.isEmpty())
+                color.setAlphaF(qBound(0.0f, alpha.endsWith('%') ? alpha.chopped(1).toFloat() / 100
+                                                                 : alpha.toFloat(), 1.0f));
+        }
+        const bool opaque = color.alpha() == 255;
+        const QString rgb = QStringLiteral("%1, %2, %3").arg(color.red()).arg(color.green()).arg(color.blue());
+        return {
+            {QStringLiteral("color"), color},
+            {QStringLiteral("hex"), color.name(QColor::HexRgb).toUpper()}, // прозрачность — в rgba
+            {QStringLiteral("rgb"), opaque ? QStringLiteral("rgb(%1)").arg(rgb)
+                                           : QStringLiteral("rgba(%1, %2)").arg(rgb).arg(color.alphaF(), 0, 'g', 2)},
+            {QStringLiteral("hsl"), QStringLiteral("hsl(%1, %2%, %3%)").arg(qMax(color.hslHue(), 0))
+                                        .arg(qRound(color.hslSaturationF() * 100)).arg(qRound(color.lightnessF() * 100))},
+        };
+    }
+    return {};
+}
+
 QRectF EditorView::caretRectangle() const
 {
     if (!m_document)
         return {};
-    const Cursor c = primary().cursor;
-    return {textLeft() - m_scrollX + visualOf(c) * m_charWidth, rowOf(c.line) * m_lineHeight - m_scrollY,
+    const QPoint p = screenOf(primary().cursor);
+    return {textLeft() - m_scrollX + p.x() * m_charWidth, p.y() * m_lineHeight - m_scrollY,
             2, m_lineHeight};
 }
 
@@ -458,7 +527,7 @@ void EditorView::goTo(int line, int column, int length)
     const Cursor from = TextBuffer::clampPosition({line, column}, buffer());
     const Cursor to = TextBuffer::clampPosition({line, column + length}, buffer());
     setCarets({{to, from}}, 0);
-    setScroll(m_scrollX, rowOf(from.line) * m_lineHeight - height() / 2);
+    setScroll(m_scrollX, screenOf(from).y() * m_lineHeight - height() / 2);
 }
 
 void EditorView::setChangeMarks(QObject *object, QVector<ChangeMark> marks)
@@ -568,11 +637,14 @@ QString EditorView::language() const
         {"cxx", "C++"},   {"hh", "C++"},     {"hpp", "C++"},    {"hxx", "C++"},
         {"inl", "C++"},   {"py", "Python"},  {"pyw", "Python"}, {"pyi", "Python"},
         {"json", "JSON"}, {"jsonc", "JSON"}, {"md", "Markdown"}, {"markdown", "Markdown"},
-        {"qml", "QML"},
+        {"qml", "QML"},   {"cmake", "CMake"},
     };
     if (!m_document)
         return {};
-    return names.value(QFileInfo(filePath()).suffix().toLower(), tr("Текст"));
+    const QFileInfo info(filePath());
+    if (info.fileName().compare(QLatin1String("CMakeLists.txt"), Qt::CaseInsensitive) == 0)
+        return QStringLiteral("CMake");
+    return names.value(info.suffix().toLower(), tr("Текст"));
 }
 
 qreal EditorView::contentHeight() const
@@ -586,6 +658,228 @@ void EditorView::save()
     QString error;
     if (m_document && !m_document->save(&error))
         emit errorOccurred(error);
+}
+
+// ── Ряды и перенос ──────────────────────────────────────────────────────
+
+bool EditorView::wrapping() const
+{
+    return m_wordWrap && m_wrapColumns > 0 && m_document && buffer().lineCount() <= kMaxWrapLines
+           && buffer().length() <= kMaxWrapChars;
+}
+
+void EditorView::setWordWrap(bool wrap)
+{
+    if (wrap == m_wordWrap)
+        return;
+    m_wordWrap = wrap;
+    invalidateWrap();
+    if (wrap)
+        m_scrollX = 0;
+    markContentChanged();
+    emit wordWrapChanged();
+    emit contentSizeChanged();
+    if (m_document)
+        ensureCursorVisible();
+}
+
+void EditorView::setRightMargin(qreal margin)
+{
+    if (margin == m_rightMargin)
+        return;
+    m_rightMargin = margin;
+    updateWrapColumns();
+    markContentChanged();
+    emit rightMarginChanged();
+}
+
+void EditorView::invalidateWrap()
+{
+    m_wrapExtra.clear();
+    m_wrapBefore.clear();
+    m_rowStartsCache.clear();
+}
+
+void EditorView::updateWrapColumns()
+{
+    // Колонка в запас: каретка в конце ряда не уходит за край
+    const int columns = qMax(10, int(textWidth() / m_charWidth) - 1);
+    if (columns == m_wrapColumns)
+        return;
+    m_wrapColumns = columns;
+    if (m_wordWrap) {
+        invalidateWrap();
+        m_contentDirty = true;
+    }
+}
+
+void EditorView::spliceWrap(const QVector<TextBuffer::Edit> &edits, bool overflow)
+{
+    // Правка меняет число рядов только у своих строк — остальные не пересчитываем
+    m_rowStartsCache.clear();
+    m_wrapBefore.clear();
+    if (m_wrapExtra.isEmpty())
+        return;
+    if (overflow) {
+        m_wrapExtra.clear();
+        return;
+    }
+    for (const TextBuffer::Edit &e : edits) {
+        const int removed = e.oldEnd.line - e.start.line + 1;
+        const int added = e.newEnd.line - e.start.line + 1;
+        if (e.start.line + removed > m_wrapExtra.size()) {
+            m_wrapExtra.clear();
+            return;
+        }
+        m_wrapExtra.remove(e.start.line, removed);
+        m_wrapExtra.insert(e.start.line, added, -1);
+        // Диапазон строк с -1: пересчитывать только его, а не весь файл
+        const int end = e.start.line + added;
+        if (!m_wrapPending) {
+            m_wrapPendingFrom = e.start.line;
+            m_wrapPendingTo = end;
+        } else {
+            if (m_wrapPendingTo > e.start.line)
+                m_wrapPendingTo = qMax(e.start.line, m_wrapPendingTo + added - removed);
+            m_wrapPendingFrom = qMin(m_wrapPendingFrom, e.start.line);
+            m_wrapPendingTo = qMax(m_wrapPendingTo, end);
+        }
+        m_wrapPending = true;
+    }
+}
+
+void EditorView::ensureWrap() const
+{
+    const int lines = buffer().lineCount();
+    auto extraOf = [this](int line) {
+        const int len = buffer().lineLength(line);
+        if (len > kLongLine || len * editing::kTabWidth <= m_wrapColumns)
+            return 0; // длинные не переносим, короткие влезают даже из одних табуляций
+        return int(editing::wrapStarts(buffer().lineAt(line), m_wrapColumns).size()) - 1;
+    };
+    if (m_wrapExtra.size() != lines) {
+        m_wrapExtra.resize(lines);
+        for (int i = 0; i < lines; ++i)
+            m_wrapExtra[i] = extraOf(i);
+        m_wrapPending = false;
+        m_wrapBefore.clear();
+    } else if (m_wrapPending) {
+        for (int i = qMax(0, m_wrapPendingFrom); i < qMin(lines, m_wrapPendingTo); ++i)
+            if (m_wrapExtra.at(i) < 0)
+                m_wrapExtra[i] = extraOf(i);
+        m_wrapPending = false;
+        m_wrapBefore.clear();
+    }
+    if (m_wrapBefore.isEmpty()) {
+        m_wrapBefore.resize(lines + 1);
+        int total = 0;
+        for (int i = 0; i < lines; ++i) {
+            m_wrapBefore[i] = total;
+            if (m_wrapExtra.at(i) > 0 && !m_folds.isHidden(i))
+                total += m_wrapExtra.at(i);
+        }
+        m_wrapBefore[lines] = total;
+    }
+}
+
+int EditorView::rowCount() const
+{
+    if (!m_document)
+        return 0;
+    const int rows = m_folds.rowCount(buffer().lineCount());
+    if (!wrapping())
+        return rows;
+    ensureWrap();
+    return rows + m_wrapBefore.last();
+}
+
+int EditorView::rowOf(int line) const
+{
+    const int foldRow = m_folds.rowOf(line);
+    if (!wrapping())
+        return foldRow;
+    ensureWrap();
+    return foldRow + m_wrapBefore.at(m_folds.lineAt(foldRow));
+}
+
+int EditorView::lineAt(int row) const
+{
+    row = qBound(0, row, rowCount() - 1);
+    if (!wrapping())
+        return m_folds.lineAt(row);
+    // Последняя строка, чей ряд не ниже row: у видимой — её первый ряд, у скрытой —
+    // последний ряд заголовка; ряды по строкам не убывают
+    int lo = 0, hi = buffer().lineCount() - 1;
+    while (lo < hi) {
+        const int mid = (lo + hi + 1) / 2;
+        if (m_folds.rowOf(mid) + m_wrapBefore.at(mid) <= row)
+            lo = mid;
+        else
+            hi = mid - 1;
+    }
+    return m_folds.lineAt(m_folds.rowOf(lo));
+}
+
+int EditorView::lineByRows(int line, int rows) const
+{
+    const int count = m_folds.rowCount(buffer().lineCount());
+    return m_folds.lineAt(qBound(0, m_folds.rowOf(line) + rows, count - 1));
+}
+
+EditorView::RowLayout EditorView::rowLayout(int line) const
+{
+    if (!wrapping())
+        return {};
+    const int len = buffer().lineLength(line);
+    if (len > kLongLine || len * editing::kTabWidth <= m_wrapColumns)
+        return {};
+    if (const auto it = m_rowStartsCache.constFind(line); it != m_rowStartsCache.cend())
+        return *it;
+    RowLayout layout;
+    layout.starts = editing::wrapStarts(buffer().lineAt(line), m_wrapColumns, &layout.indent);
+    if (m_rowStartsCache.size() > 4096)
+        m_rowStartsCache.clear();
+    m_rowStartsCache.insert(line, layout);
+    return layout;
+}
+
+QPoint EditorView::screenOf(Cursor c) const
+{
+    const int visual = visualOf(c);
+    const RowLayout layout = rowLayout(c.line);
+    const QVector<int> &starts = layout.starts;
+    const int part = int(std::upper_bound(starts.cbegin(), starts.cend(), visual) - starts.cbegin()) - 1;
+    return {visual - starts.at(part) + (part > 0 ? layout.indent : 0), rowOf(c.line) + part};
+}
+
+EditorView::Cursor EditorView::visualAtScreen(int row, int column) const
+{
+    row = qBound(0, row, rowCount() - 1);
+    const int line = lineAt(row);
+    const RowLayout layout = rowLayout(line);
+    const QVector<int> &starts = layout.starts;
+    const int part = qBound(0, row - rowOf(line), int(starts.size()) - 1);
+    int visual = starts.at(part) + qMax(0, column - (part > 0 ? layout.indent : 0));
+    if (part + 1 < starts.size()) // правее конца ряда — в его конец, а не в следующий ряд
+        visual = qMin(visual, starts.at(part + 1) - 1);
+    return {line, visual};
+}
+
+QVector<QRectF> EditorView::spanRects(int line, int v0, int v1) const
+{
+    v1 = qMax(v1, v0 + 1);
+    const RowLayout layout = rowLayout(line);
+    const QVector<int> &starts = layout.starts;
+    const int row = rowOf(line);
+    QVector<QRectF> rects;
+    for (int part = 0; part < starts.size(); ++part) {
+        const int from = starts.at(part) - (part > 0 ? layout.indent : 0); // колонка левого края ряда
+        const int to = part + 1 < starts.size() ? starts.at(part + 1) : INT_MAX;
+        const int a = qMax(v0, starts.at(part)), b = qMin(v1, to);
+        if (a < b)
+            rects.append({(a - from) * m_charWidth, (row + part) * m_lineHeight, (b - a) * m_charWidth, m_lineHeight});
+    }
+    return rects;
 }
 
 // ── Колонки ─────────────────────────────────────────────────────────────
@@ -695,7 +989,7 @@ void EditorView::moveCarets(const std::function<Cursor(const Caret &)> &target, 
     if (!m_document)
         return;
     for (Caret &c : m_carets) {
-        const int goal = c.goal >= 0 ? c.goal : visualOf(c.cursor);
+        const int goal = c.goal >= 0 ? c.goal : screenOf(c.cursor).x(); // колонка в ряду
         c.cursor = TextBuffer::clampPosition(target(c), buffer());
         if (!extend)
             c.anchor = c.cursor;
@@ -741,12 +1035,12 @@ void EditorView::addCaretVertical(int direction)
     if (!m_document)
         return;
     const Caret &edge = direction < 0 ? m_carets.first() : m_carets.last();
-    const int row = rowOf(edge.cursor.line) + direction;
+    const int row = screenOf(edge.cursor).y() + direction;
     if (row < 0 || row >= rowCount())
         return;
-    const int line = lineAt(row);
-    const int goal = primary().goal >= 0 ? primary().goal : visualOf(primary().cursor);
-    const Cursor c = fromVisual(line, goal);
+    const int goal = primary().goal >= 0 ? primary().goal : screenOf(primary().cursor).x();
+    const Cursor v = visualAtScreen(row, goal);
+    const Cursor c = fromVisual(v.line, v.column);
     QVector<Caret> carets = m_carets;
     carets.append({c, c, goal});
     setCarets(carets, int(carets.size()) - 1);
@@ -866,7 +1160,7 @@ void EditorView::editCarets(const EditFn &edit, EditKind kind, const PlaceFn &pl
         parts.append(edit(before.at(i), i));
         changes = changes || !(parts.last().from == parts.last().to) || !parts.last().text.isEmpty();
     }
-    const QVector<Cursor> ends = m_document->replace(parts, kind, selections());
+    const QVector<Cursor> ends = selfEdit([&] { return m_document->replace(parts, kind, selections()); });
     for (int i = 0; i < before.size(); ++i)
         m_carets[i] = place ? place(i, before.at(i), ends.at(i)) : Caret{ends.at(i), ends.at(i)};
     m_boxActive = false;
@@ -1037,7 +1331,7 @@ void EditorView::indentLines(bool outdent)
     if (parts.isEmpty())
         return;
 
-    m_document->replace(parts, EditKind::Other, selections());
+    selfEdit([&] { return m_document->replace(parts, EditKind::Other, selections()); });
     auto shift = [&](Cursor p) {
         const int d = delta.value(p.line);
         if (d < 0)
@@ -1056,14 +1350,46 @@ void EditorView::indentLines(bool outdent)
 
 void EditorView::afterTextChange()
 {
-    bool overflow = false;
-    const QVector<TextBuffer::Edit> edits = m_document->takeEdits(&overflow);
+    // Свёртку, перенос и подсветку уже сдвинул applyDocumentEdits — здесь курсоры своей правки
+    normalizeCarets();
+    updateGutterWidth();
+    markContentChanged();
+    emit contentSizeChanged();
+    emit historyChanged();
+    caretsChanged();
+}
+
+void EditorView::applyDocumentEdits(const QVector<TextBuffer::Edit> &edits, bool overflow)
+{
+    if (edits.isEmpty() && !overflow)
+        return;
+    spliceWrap(edits, overflow);
     if (overflow)
         m_folds.clear();
     for (const TextBuffer::Edit &e : edits)
         m_folds.applyEdit(e);
-    if (m_snippet)
-        updateSnippet(edits);
+    // Курсоры едут вместе с текстом; внутри заменённого — к его началу
+    auto shift = [](Cursor p, const TextBuffer::Edit &e) -> Cursor {
+        if (p < e.start)
+            return p;
+        if (p < e.oldEnd)
+            return e.start;
+        if (p.line != e.oldEnd.line)
+            return {p.line + e.newEnd.line - e.oldEnd.line, p.column};
+        return {e.newEnd.line, e.newEnd.column + p.column - e.oldEnd.column};
+    };
+    // Свою правку вид доводит сам (afterTextChange): курсоры ставит операция
+    if (!m_selfEdit && !overflow) {
+        for (const TextBuffer::Edit &e : edits)
+            for (Caret &c : m_carets)
+                c = {shift(c.cursor, e), shift(c.anchor, e)};
+    }
+    if (m_snippet) {
+        if (m_selfEdit)
+            updateSnippet(edits);
+        else
+            endSnippet();
+    }
     if (m_syntax.hasLanguage()) {
         if (overflow)
             m_syntax.reset(buffer().snapshot());
@@ -1075,19 +1401,21 @@ void EditorView::afterTextChange()
         m_currentMatch = -1;
         emit searchUpdated(0, 0);
     }
+    markContentChanged();
+    if (m_selfEdit)
+        return;
     normalizeCarets();
     updateGutterWidth();
-    markContentChanged();
     emit contentSizeChanged();
     emit historyChanged();
-    caretsChanged();
+    caretsChanged(false);
 }
 
 void EditorView::undo()
 {
     endSnippet();
     Document::Selections s;
-    if (m_document && m_document->undo(&s)) {
+    if (m_document && selfEdit([&] { return m_document->undo(&s); })) {
         setSelections(s);
         afterTextChange();
     }
@@ -1097,7 +1425,7 @@ void EditorView::redo()
 {
     endSnippet();
     Document::Selections s;
-    if (m_document && m_document->redo(&s)) {
+    if (m_document && selfEdit([&] { return m_document->redo(&s); })) {
         setSelections(s);
         afterTextChange();
     }
@@ -1180,10 +1508,10 @@ EditorView::Cursor EditorView::stepRight(Cursor c, bool word) const
     return {c.line, i};
 }
 
-EditorView::Cursor EditorView::visualAt(const QPointF &pos) const
+EditorView::Cursor EditorView::visualAt(const QPointF &pos, bool nearest) const
 {
-    const int line = lineAt(int((pos.y() + m_scrollY) / m_lineHeight));
-    return {line, qMax(0, qRound((pos.x() - textLeft() + m_scrollX) / m_charWidth))};
+    const qreal x = (pos.x() - textLeft() + m_scrollX) / m_charWidth;
+    return visualAtScreen(qFloor((pos.y() + m_scrollY) / m_lineHeight), qMax(0, nearest ? qRound(x) : qFloor(x)));
 }
 
 EditorView::Cursor EditorView::cursorAt(const QPointF &pos) const
@@ -1199,13 +1527,14 @@ void EditorView::ensureCursorVisible()
 {
     const Cursor cursor = primary().cursor;
     qreal x = m_scrollX, y = m_scrollY;
-    const qreal top = rowOf(cursor.line) * m_lineHeight;
+    const QPoint screen = screenOf(cursor);
+    const qreal top = screen.y() * m_lineHeight;
     if (top < y)
         y = top;
     else if (top + m_lineHeight > y + height())
         y = top + m_lineHeight - height();
 
-    const qreal caretX = visualOf(cursor) * m_charWidth;
+    const qreal caretX = screen.x() * m_charWidth;
     const qreal margin = 4 * m_charWidth;
     if (caretX < x)
         x = qMax<qreal>(0, caretX - margin);
@@ -1224,6 +1553,8 @@ void EditorView::setScroll(qreal x, qreal y)
     // Предел по X — самая широкая из видимых строк (и строка курсора)
     auto widthOf = [this](int line) {
         const int len = buffer().lineLength(line);
+        if (len <= kLongLine && wrapping())
+            return 0; // перенесённая строка шире окна не бывает
         return len > kLongLine ? len : editing::visualColumn(buffer().lineAt(line), len);
     };
     int widest = widthOf(primary().cursor.line);
@@ -1261,6 +1592,7 @@ void EditorView::updateGutterWidth()
     if (width != m_gutterWidth) {
         m_gutterWidth = width;
         m_contentDirty = true;
+        updateWrapColumns();
     }
 }
 
@@ -1275,6 +1607,7 @@ void EditorView::markContentChanged()
 
 void EditorView::foldsChanged()
 {
+    m_wrapBefore.clear(); // накопленные ряды зависят от свёрнутости
     markContentChanged();
     emit contentSizeChanged();
     setScroll(m_scrollX, m_scrollY); // контент мог стать короче прокрутки
@@ -1436,7 +1769,9 @@ void EditorView::keyPressEvent(QKeyEvent *event)
 
     auto vertical = [&](int delta) {
         moveCarets([&](const Caret &c) {
-            return fromVisual(lineByRows(c.cursor.line, delta), c.goal >= 0 ? c.goal : visualOf(c.cursor));
+            const QPoint screen = screenOf(c.cursor);
+            const Cursor v = visualAtScreen(screen.y() + delta, c.goal >= 0 ? c.goal : screen.x());
+            return fromVisual(v.line, v.column);
         }, shift, true);
     };
     auto horizontal = [&](bool right) {
@@ -1577,18 +1912,22 @@ void EditorView::mousePressEvent(QMouseEvent *event)
     const Qt::KeyboardModifiers mods = event->modifiers();
 
     const qreal x = event->position().x();
+    // Перенесённая строка: маркер сворачивания — в её первом ряду, «…» — в последнем
+    const int row = qFloor((event->position().y() + m_scrollY) / m_lineHeight);
+    const bool firstRow = row == rowOf(c.line);
+    const bool lastRow = row == rowOf(c.line) + int(rowStarts(c.line).size()) - 1;
     if ((mods & Qt::ControlModifier) && x >= textLeft()) { // Ctrl+клик — к определению
         setCarets({{c, c}}, 0);
         emit definitionClicked(c.line, c.column);
-    } else if (inFoldMarker(x)) {
+    } else if (inFoldMarker(x) && firstRow) {
         toggleFold(c.line, false);
     } else if (x < textLeft()) { // клик по номеру строки — вся строка (со свёрнутым блоком)
-        const int nextRow = rowOf(c.line) + 1;
-        const Cursor next = nextRow < rowCount() ? Cursor{lineAt(nextRow), 0}
-                                                 : Cursor{c.line, buffer().lineLength(c.line)};
+        const int nextLine = lineByRows(c.line, 1);
+        const Cursor next = nextLine != c.line ? Cursor{nextLine, 0}
+                                               : Cursor{c.line, buffer().lineLength(c.line)};
         setCarets({{next, {c.line, 0}}}, 0);
         m_mouseMode = MouseMode::Select;
-    } else if (m_folds.isFolded(c.line) && !(mods & Qt::AltModifier)
+    } else if (m_folds.isFolded(c.line) && lastRow && !(mods & Qt::AltModifier)
                && x - textLeft() + m_scrollX >= foldPlaceholderX(c.line)) { // клик по «…»
         toggleFold(c.line, false);
     } else if (mods & Qt::AltModifier) { // Alt+клик — ещё курсор, Alt+протяжка — блок
@@ -1679,6 +2018,7 @@ void EditorView::wheelEvent(QWheelEvent *event)
 void EditorView::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     QQuickItem::geometryChange(newGeometry, oldGeometry);
+    updateWrapColumns();
     m_contentDirty = true;
     emit contentSizeChanged();
     update();
@@ -1716,7 +2056,8 @@ qreal EditorView::foldPlaceholderX(int line) const
 {
     const int len = buffer().lineLength(line);
     const int width = len > kLongLine ? len : editing::visualColumn(buffer().lineAt(line), len);
-    return (width + 1) * m_charWidth;
+    const RowLayout layout = rowLayout(line); // в последнем ряду строки
+    return (width - layout.starts.last() + (layout.starts.size() > 1 ? layout.indent : 0) + 1) * m_charWidth;
 }
 
 QVector<EditorView::StyledLine> EditorView::styledLines(int firstRow, int count, int maxColumn) const
@@ -1727,22 +2068,31 @@ QVector<EditorView::StyledLine> EditorView::styledLines(int firstRow, int count,
         return out;
 
     // Символ i стоит не левее визуальной колонки i, поэтому обрезка по maxColumn
-    // ничего видимого не теряет, а строки по 10 МБ не подсвечиваются целиком
-    QVector<int> lineNumbers(count);
-    QStringList texts;
+    // ничего видимого не теряет, а строки по 10 МБ не подсвечиваются целиком.
+    // При переносе подряд идущие ряды одной строки подсвечиваются один раз
+    const bool wrap = wrapping();
+    QVector<int> rowLines(count);
+    QVector<int> lineNumbers;
     for (int i = 0; i < count; ++i) {
-        lineNumbers[i] = lineAt(firstRow + i);
-        texts.append(buffer().lineAt(lineNumbers[i]).left(maxColumn));
+        rowLines[i] = lineAt(firstRow + i);
+        if (lineNumbers.isEmpty() || lineNumbers.last() != rowLines.at(i))
+            lineNumbers.append(rowLines.at(i));
+    }
+    const int lines = int(lineNumbers.size());
+    QStringList texts;
+    for (int line : std::as_const(lineNumbers)) {
+        const bool whole = wrap && buffer().lineLength(line) <= kLongLine;
+        texts.append(whole ? buffer().lineAt(line) : buffer().lineAt(line).left(maxColumn));
     }
 
     // tree-sitter, пока нет дерева (первый разбор, большой файл), заменяют регэкспы.
     // highlightLines берёт только непрерывные строки, а свёрнутые блоки их рвут
     const bool treeSitter = m_syntax.isReady();
-    QVector<QVector<Highlighter::Span>> spans(count);
+    QVector<QVector<Highlighter::Span>> spans(lines);
     if (treeSitter) {
-        for (int from = 0; from < count;) {
+        for (int from = 0; from < lines;) {
             int to = from + 1;
-            while (to < count && lineNumbers.at(to) == lineNumbers.at(to - 1) + 1)
+            while (to < lines && lineNumbers.at(to) == lineNumbers.at(to - 1) + 1)
                 ++to;
             QVector<QVector<Highlighter::Span>> part;
             m_syntax.highlightLines(lineNumbers.at(from), texts.mid(from, to - from), part);
@@ -1750,19 +2100,19 @@ QVector<EditorView::StyledLine> EditorView::styledLines(int firstRow, int count,
             from = to;
         }
     } else if (m_highlighter.hasLanguage()) {
-        for (int i = 0; i < count; ++i)
+        for (int i = 0; i < lines; ++i)
             m_highlighter.highlightLine(texts.at(i), spans[i]);
     }
 
     out.reserve(count);
     QVector<int> map;
-    for (int i = 0; i < count; ++i) {
+    for (int i = 0; i < lines; ++i) {
         StyledLine styled{lineNumbers.at(i), editing::expandTabs(texts.at(i), &map), {}};
         const int length = int(texts.at(i).size());
         int pos = 0;
-        auto add = [&](int to, QRgb color) {
+        auto add = [&](int to, QRgb color, int font = 0) {
             if (to > pos)
-                styled.runs.append({pos, to, color});
+                styled.runs.append({pos, to, color, font});
             pos = qMax(pos, to);
         };
         for (const Highlighter::Span &s : std::as_const(spans.at(i))) {
@@ -1771,12 +2121,44 @@ QVector<EditorView::StyledLine> EditorView::styledLines(int firstRow, int count,
             add(map.at(s.start), colors().text);
             const QColor color = treeSitter ? SyntaxHighlighter::color(s.rule)
                                             : m_highlighter.ruleColor(s.rule);
-            add(map.at(qMin(s.start + s.length, length)), color.isValid() ? color.rgb() : colors().text);
+            add(map.at(qMin(s.start + s.length, length)), color.isValid() ? color.rgb() : colors().text,
+                treeSitter ? SyntaxHighlighter::fontStyle(s.rule) : 0);
         }
         add(int(styled.display.size()), colors().text);
         out.append(std::move(styled));
     }
-    return out;
+    if (!wrap)
+        return out;
+
+    // Ряды перенесённых строк: кусок текста и отрезки цвета, сдвинутые к началу ряда
+    QVector<StyledLine> rows;
+    rows.reserve(count);
+    for (int i = 0, u = 0; i < count; ++i) {
+        while (lineNumbers.at(u) != rowLines.at(i))
+            ++u;
+        const StyledLine &whole = out.at(u);
+        const RowLayout layout = rowLayout(whole.line);
+        const QVector<int> &starts = layout.starts;
+        if (starts.size() == 1) {
+            rows.append(whole);
+            continue;
+        }
+        const int part = qBound(0, firstRow + i - rowOf(whole.line), int(starts.size()) - 1);
+        const int shift = part > 0 ? layout.indent : 0;
+        const int from = starts.at(part);
+        const int to = part + 1 < starts.size() ? starts.at(part + 1) : int(whole.display.size());
+        StyledLine row{whole.line, QString(shift, u' ') + whole.display.mid(from, to - from), {},
+                       part + 1 == starts.size()};
+        if (shift > 0)
+            row.runs.append({0, shift, colors().text, 0});
+        for (const ColorRun &run : whole.runs) {
+            const int a = qMax(run.from, from), b = qMin(run.to, to);
+            if (a < b)
+                row.runs.append({a - from + shift, b - from + shift, run.color, run.font});
+        }
+        rows.append(std::move(row));
+    }
+    return rows;
 }
 
 void EditorView::buildTextNodes(int firstRow, int count, int column0, int column1)
@@ -1784,8 +2166,17 @@ void EditorView::buildTextNodes(int firstRow, int count, int column0, int column
     for (QSGTextNode *node : std::as_const(m_textNodes))
         node->clear();
 
-    auto addText = [&](const QString &text, qreal x, int row, QRgb color) {
-        QTextLayout layout(text, m_font);
+    // Жирный и курсив у моноширинного шрифта той же ширины — сетка колонок не плывёт
+    auto fontFor = [this](int style) {
+        QFont font = m_font;
+        font.setBold(style & SyntaxHighlighter::Bold);
+        font.setItalic(style & SyntaxHighlighter::Italic);
+        font.setStrikeOut(style & SyntaxHighlighter::StrikeOut);
+        font.setUnderline(style & SyntaxHighlighter::Underline);
+        return font;
+    };
+    auto addText = [&](const QString &text, qreal x, int row, QRgb color, int style = 0) {
+        QTextLayout layout(text, style ? fontFor(style) : m_font);
         layout.beginLayout();
         layout.createLine().setLineWidth(1e6);
         layout.endLayout();
@@ -1799,9 +2190,9 @@ void EditorView::buildTextNodes(int firstRow, int count, int column0, int column
             const int from = qMax(run.from, column0), to = qMin(run.to, column1);
             const QString piece = line.display.mid(from, to - from);
             if (from < to && !piece.trimmed().isEmpty())
-                addText(piece, from * m_charWidth, firstRow + i, run.color);
+                addText(piece, from * m_charWidth, firstRow + i, run.color, run.font);
         }
-        if (m_folds.isFolded(line.line))
+        if (line.lastRow && m_folds.isFolded(line.line))
             addText(QStringLiteral("…"), foldPlaceholderX(line.line) + m_charWidth, firstRow + i,
                     colors().gutterCurrent);
     }
@@ -1818,7 +2209,7 @@ void EditorView::buildGutterNodes(int firstRow, const QVector<int> &lineNumbers,
     for (int i = 0; i < lineNumbers.size(); ++i) {
         const int line = lineNumbers.at(i);
         const int shown = !ownNumbers ? line : line < diff->numbers.size() ? diff->numbers.at(line) : -1;
-        if (shown < 0)
+        if (shown < 0 || firstRow + i != rowOf(line))
             continue;
         const QString number = QString::number(shown + 1);
         QTextLayout layout(number, m_font);
@@ -1841,6 +2232,8 @@ void EditorView::buildFoldMarkers(int firstRow, const QVector<int> &lineNumbers)
     const qreal cx = qRound(m_gutterWidth - 1.1 * m_charWidth);
     for (int i = 0; i < lineNumbers.size(); ++i) {
         const int line = lineNumbers.at(i);
+        if (firstRow + i != rowOf(line))
+            continue;
         const qreal cy = qRound((firstRow + i) * m_lineHeight + m_lineHeight / 2);
         if (m_folds.isFolded(line))
             closed << QPointF(cx - h / 2, cy - h) << QPointF(cx - h / 2, cy + h) << QPointF(cx + h / 2, cy);
@@ -1863,14 +2256,14 @@ QVector<QPair<QRectF, QColor>> EditorView::changeRects(int firstLine, int lastLi
             const int line = qMin(mark.line, buffer().lineCount() - 1);
             if (m_folds.isHidden(line))
                 continue;
-            const qreal y = (rowOf(line) + (mark.line > line ? 1 : 0)) * m_lineHeight;
+            const qreal y = (rowOf(line) + (mark.line > line ? int(rowStarts(line).size()) : 0)) * m_lineHeight;
             rects.append({QRectF(x - 2, y - 2, 7, 4), QColor(colors().changeRemoved)});
             continue;
         }
         const QColor color(mark.kind == ChangeMark::Added ? colors().changeAdded : colors().changeModified);
         for (int line = qMax(mark.line, firstLine); line <= qMin(mark.line + mark.count - 1, lastLine); ++line)
             if (!m_folds.isHidden(line))
-                rects.append({QRectF(x, rowOf(line) * m_lineHeight, 3, m_lineHeight), color});
+                rects.append({QRectF(x, rowOf(line) * m_lineHeight, 3, rowStarts(line).size() * m_lineHeight), color});
     }
     return rects;
 }
@@ -2013,8 +2406,11 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     const int viewColumn1 = viewColumn0 + qCeil(textWidth() / m_charWidth) + 1;
 
     // Позиция в пикселях — по тексту до курсора, а не по всей строке (строки бывают по 10 МБ)
-    auto xOf = [&](Cursor c) { return visualOf(c) * m_charWidth; };
-    auto yOf = [&](int line) { return rowOf(line) * m_lineHeight; };
+    auto pointOf = [&](Cursor c) {
+        const QPoint p = screenOf(c);
+        return QPointF(p.x() * m_charWidth, p.y() * m_lineHeight);
+    };
+    auto lineEnd = [&](int line) { return visualOf({line, buffer().lineLength(line)}); };
     auto visibleLine = [&](int line) { return isLineVisible(line, firstLine, lastLine); };
 
     const bool rebuild = m_contentDirty || firstRow != m_builtFirstRow
@@ -2059,32 +2455,36 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     QVector<QPair<QRectF, QColor>> currentLines;
     for (int line : std::as_const(caretLines))
         if (visibleLine(line))
-            currentLines.append({QRectF(0, yOf(line) - m_scrollY, width(), m_lineHeight),
+            currentLines.append({QRectF(0, rowOf(line) * m_lineHeight - m_scrollY, width(),
+                                        rowStarts(line).size() * m_lineHeight),
                                  QColor(colors().currentLine)});
     setRects(m_currentLineLayer, m_currentLinePool, currentLines);
     setRects(m_diffLayer, m_diffPool, diffRects(firstRow, lineNumbers));
     setRects(m_changeLayer, m_changePool, changeRects(firstLine, lastLine));
 
     // Выделения и каретки — в координатах текста, только видимые ряды
+    QVector<int> shownLines; // видимые строки без повторов (у перенесённой — несколько рядов)
+    for (int line : std::as_const(lineNumbers))
+        if (shownLines.isEmpty() || shownLines.last() != line)
+            shownLines.append(line);
     QVector<QPair<QRectF, QColor>> selection, carets;
     const bool caretOn = m_caretVisible && hasActiveFocus();
     for (const Caret &c : std::as_const(m_carets)) {
         if (c.hasSelection()) {
             const Cursor a = c.start(), b = c.end();
-            for (int row = qMax(rowOf(a.line), firstRow); row <= qMin(rowOf(b.line), lastRow); ++row) {
-                const int line = lineNumbers.at(row - firstRow);
-                if (line < a.line)
-                    continue; // начало выделения внутри свёрнутого блока
-                const qreal x0 = line == a.line ? xOf(a) : 0;
-                const qreal x1 = line == b.line ? xOf(b)
-                                                : xOf({line, buffer().lineLength(line)}) + m_charWidth; // + перевод строки
-                selection.append({QRectF(x0, row * m_lineHeight, qMax(m_charWidth, x1 - x0), m_lineHeight),
-                                  QColor(colors().selection)});
+            for (int line : std::as_const(shownLines)) {
+                if (line < a.line || line > b.line)
+                    continue;
+                const int v0 = line == a.line ? visualOf(a) : 0;
+                const int v1 = line == b.line ? visualOf(b) : lineEnd(line) + 1; // + перевод строки
+                for (const QRectF &r : spanRects(line, v0, v1))
+                    selection.append({r, QColor(colors().selection)});
             }
         }
-        if (caretOn && visibleLine(c.cursor.line))
-            carets.append({QRectF(xOf(c.cursor) - 1, yOf(c.cursor.line) + 2, 2, m_lineHeight - 4),
-                           QColor(colors().caret)});
+        if (caretOn && visibleLine(c.cursor.line)) {
+            const QPointF p = pointOf(c.cursor);
+            carets.append({QRectF(p.x() - 1, p.y() + 2, 2, m_lineHeight - 4), QColor(colors().caret)});
+        }
     }
     setRects(m_selectionLayer, m_selectionPool, selection);
     setRects(m_caretLayer, m_caretPool, carets);
@@ -2092,25 +2492,28 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     QVector<QPair<QRectF, QColor>> brackets;
     for (const Cursor b : std::as_const(m_brackets))
         if (visibleLine(b.line))
-            brackets.append({QRectF(xOf(b), yOf(b.line), m_charWidth, m_lineHeight), QColor(colors().bracket)});
+            brackets.append({QRectF(pointOf(b), QSizeF(m_charWidth, m_lineHeight)), QColor(colors().bracket)});
     setRects(m_bracketLayer, m_bracketPool, brackets);
 
     QVector<QPair<QRectF, QColor>> placeholders;
     for (int i = 0; i < count; ++i)
-        if (m_folds.isFolded(lineNumbers.at(i)))
+        if (m_folds.isFolded(lineNumbers.at(i))
+            && firstRow + i == rowOf(lineNumbers.at(i)) + int(rowStarts(lineNumbers.at(i)).size()) - 1)
             placeholders.append({QRectF(foldPlaceholderX(lineNumbers.at(i)), (firstRow + i) * m_lineHeight + 3,
                                         3 * m_charWidth, m_lineHeight - 6),
                                  QColor(colors().foldPlaceholder)});
     setRects(m_foldLayer, m_foldPool, placeholders);
 
     QVector<QPair<QRectF, QColor>> matches;
-    for (int i = 0; i < m_matches.size(); ++i) {
+    const auto firstMatch = std::lower_bound(m_matches.cbegin(), m_matches.cend(), firstLine,
+                                             [](const Match &m, int line) { return m.line < line; });
+    for (int i = int(firstMatch - m_matches.cbegin()); i < m_matches.size() && m_matches.at(i).line <= lastLine; ++i) {
         const Match &m = m_matches.at(i);
         if (!visibleLine(m.line))
             continue;
-        const qreal x0 = xOf({m.line, m.column}), x1 = xOf({m.line, m.column + m.length});
-        matches.append({QRectF(x0, yOf(m.line), qMax(m_charWidth, x1 - x0), m_lineHeight),
-                        QColor(i == m_currentMatch ? colors().currentMatch : colors().match)});
+        const QColor color(i == m_currentMatch ? colors().currentMatch : colors().match);
+        for (const QRectF &r : spanRects(m.line, visualOf({m.line, m.column}), visualOf({m.line, m.column + m.length})))
+            matches.append({r, color});
     }
     setRects(m_matchLayer, m_matchPool, matches);
 
@@ -2121,13 +2524,14 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         for (int line = qMax(d.start.line, firstLine); line <= qMin(d.end.line, lastLine); ++line) {
             if (!visibleLine(line))
                 continue;
-            const qreal x0 = line == d.start.line ? xOf(d.start) : 0;
-            const qreal x1 = qMax(x0 + m_charWidth, line == d.end.line ? xOf(d.end)
-                                                                       : xOf({line, buffer().lineLength(line)}));
-            const qreal y = yOf(line) + m_lineHeight - 4;
-            for (qreal x = x0; x < x1; x += 2) {
-                const bool up = int((x - x0) / 2) % 2;
-                points << QPointF(x, y + (up ? 2 : 0)) << QPointF(x + 2, y + (up ? 0 : 2));
+            const int v0 = line == d.start.line ? visualOf(d.start) : 0;
+            const int v1 = line == d.end.line ? visualOf(d.end) : lineEnd(line);
+            for (const QRectF &r : spanRects(line, v0, v1)) {
+                const qreal y = r.bottom() - 4;
+                for (qreal x = r.left(); x < r.right(); x += 2) {
+                    const bool up = int((x - r.left()) / 2) % 2;
+                    points << QPointF(x, y + (up ? 2 : 0)) << QPointF(x + 2, y + (up ? 0 : 2));
+                }
             }
         }
     }

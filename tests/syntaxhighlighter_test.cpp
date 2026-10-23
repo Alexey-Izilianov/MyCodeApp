@@ -17,6 +17,8 @@ private slots:
     void multilineComment();
     void pythonColors();
     void qmlColors();
+    void markdownColors();
+    void cmakeColors();
     void incrementalEdit();
     void editsDuringParse();
     void documentSwitchDropsStaleParse();
@@ -308,6 +310,66 @@ void SyntaxHighlighterTest::documentSwitchDropsStaleParse()
     const Spans spans = highlightAll(hl, second);
     QCOMPARE(styleAt(spans, 1, 0), kComment);
     QCOMPARE(styleAt(spans, 0, 0), kType);
+}
+
+void SyntaxHighlighterTest::markdownColors()
+{
+    SyntaxHighlighter hl;
+    TextBuffer buf;
+    QVERIFY(hl.setLanguageForFile(QStringLiteral("README.md")));
+    QVERIFY(parse(hl, buf,
+                  "# Title\n"
+                  "\n"
+                  "Text *it* **bold** `code` [link](http://x.y)\n"
+                  "\n"
+                  "- item\n"
+                  "> quote *it*\n"
+                  "\n"
+                  "```cpp\n"
+                  "int x = 42;\n"
+                  "```\n"));
+    const Spans spans = highlightAll(hl, buf);
+
+    QCOMPARE(styleAt(spans, 0, 0), QByteArray("heading"));
+    QCOMPARE(styleAt(spans, 0, 3), QByteArray("heading"));
+    QCOMPARE(styleAt(spans, 2, 0), QByteArray());           // обычный текст
+    QCOMPARE(styleAt(spans, 2, 6), QByteArray("italic"));
+    QCOMPARE(styleAt(spans, 2, 12), QByteArray("bold"));
+    QCOMPARE(styleAt(spans, 2, 20), QByteArray("code"));
+    QCOMPARE(styleAt(spans, 2, 27), QByteArray("link"));
+    QCOMPARE(styleAt(spans, 2, 34), QByteArray("url"));
+    QCOMPARE(styleAt(spans, 4, 0), QByteArray("punctuation")); // маркер списка
+    QCOMPARE(styleAt(spans, 4, 2), QByteArray());
+    QCOMPARE(styleAt(spans, 5, 3), QByteArray("quote"));
+    QCOMPARE(styleAt(spans, 5, 9), QByteArray("italic"));
+    QCOMPARE(styleAt(spans, 7, 0), QByteArray("punctuation"));
+    QCOMPARE(styleAt(spans, 8, 0), kType);                   // int — грамматика C++
+    QCOMPARE(styleAt(spans, 8, 4), QByteArray());           // x
+    QCOMPARE(styleAt(spans, 8, 8), kNumber);
+}
+
+void SyntaxHighlighterTest::cmakeColors()
+{
+    SyntaxHighlighter hl;
+    TextBuffer buf;
+    QVERIFY(hl.setLanguageForFile(QStringLiteral("dir/CMakeLists.txt")));
+    QVERIFY(parse(hl, buf,
+                  "# comment\n"
+                  "add_library(core STATIC src/a.cpp)\n"
+                  "set(NAME \"x ${VAR} y\")\n"
+                  "if(WIN32)\n"
+                  "endif()\n"));
+    const Spans spans = highlightAll(hl, buf);
+
+    QCOMPARE(styleAt(spans, 0, 0), kComment);
+    QCOMPARE(styleAt(spans, 1, 0), kFunction);   // add_library
+    QCOMPARE(styleAt(spans, 1, 12), QByteArray()); // core — не ключевое слово
+    QCOMPARE(styleAt(spans, 1, 17), kConstant);  // STATIC
+    QCOMPARE(styleAt(spans, 2, 9), kString);
+    QCOMPARE(styleAt(spans, 2, 13), kProperty);  // ${VAR} внутри строки
+    QCOMPARE(styleAt(spans, 3, 0), kKeyword);    // if
+    QCOMPARE(styleAt(spans, 3, 3), kConstant);   // WIN32
+    QCOMPARE(styleAt(spans, 4, 0), kKeyword);
 }
 
 QTEST_GUILESS_MAIN(SyntaxHighlighterTest)

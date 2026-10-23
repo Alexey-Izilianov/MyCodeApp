@@ -78,9 +78,6 @@ public:
     // Курсор сдвинули, кликнули мышью и т.п. — следующий ввод начнёт новый шаг
     void breakUndoGroup() { m_groupOpen = false; }
 
-    // Правки буфера для инкрементальных потребителей (подсветка)
-    QVector<TextBuffer::Edit> takeEdits(bool *overflow = nullptr)
-    { return m_buffer.takeEdits(overflow); }
 
     // Правка буфера в «сыром» виде: [offset, offset + count) -> text
     struct RawEdit {
@@ -99,6 +96,9 @@ signals:
     void loadProgress(int percent); // 0..100
     void loadFinished(bool ok);
     void reloaded();
+    // После каждой правки (replace, undo, redo, восстановление) — её журнал для всех видов
+    // документа: свёртка, перенос, tree-sitter. overflow — журнал переполнился, пересчитать всё
+    void changed(const QVector<TextBuffer::Edit> &edits, bool overflow);
 
 private:
     struct Change {
@@ -114,6 +114,7 @@ private:
     };
 
     void apply(int offset, int count, const QString &text);
+    void flushEdits();
     void pushStep(QVector<Change> changes, const Selections &before, const Selections &after,
                   EditKind kind);
     void resetHistory();

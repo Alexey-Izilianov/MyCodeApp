@@ -151,6 +151,7 @@ QVector<Document::Position> Document::replace(const QVector<Replacement> &parts,
     }
     if (!changes.isEmpty())
         pushStep(std::move(changes), before, after, kind);
+    flushEdits();
     return ends;
 }
 
@@ -165,12 +166,21 @@ void Document::replayEdits(const QVector<RawEdit> &edits)
     }
     if (!changes.isEmpty())
         pushStep(std::move(changes), {}, {}, EditKind::Other);
+    flushEdits();
 }
 
 void Document::apply(int offset, int count, const QString &text)
 {
     m_buffer.replace(offset, count, text);
     emit edited(offset, count, text);
+}
+
+void Document::flushEdits()
+{
+    bool overflow = false;
+    const QVector<TextBuffer::Edit> edits = m_buffer.takeEdits(&overflow);
+    if (!edits.isEmpty() || overflow)
+        emit changed(edits, overflow);
 }
 
 void Document::pushStep(QVector<Change> changes, const Selections &before, const Selections &after,
@@ -213,6 +223,7 @@ bool Document::undo(Selections *selections)
     *selections = step.before;
     m_groupOpen = false;
     updateDirty();
+    flushEdits();
     return true;
 }
 
@@ -226,6 +237,7 @@ bool Document::redo(Selections *selections)
     *selections = step.after;
     m_groupOpen = false;
     updateDirty();
+    flushEdits();
     return true;
 }
 

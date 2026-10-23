@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
+#include <QTimeZone>
 #include <git2.h>
 #include <vector>
 
@@ -14,6 +16,9 @@ namespace {
 struct Free {
     void operator()(git_blob *p) const { git_blob_free(p); }
     void operator()(git_commit *p) const { git_commit_free(p); }
+    void operator()(git_diff *p) const { git_diff_free(p); }
+    void operator()(git_reference_iterator *p) const { git_reference_iterator_free(p); }
+    void operator()(git_revwalk *p) const { git_revwalk_free(p); }
     void operator()(git_index *p) const { git_index_free(p); }
     void operator()(git_object *p) const { git_object_free(p); }
     void operator()(git_reference *p) const { git_reference_free(p); }
@@ -92,12 +97,43 @@ int toZeroBased(int start, int count)
     return count == 0 ? start : start - 1;
 }
 
+QString idOf(const git_oid *oid)
+{
+    char text[GIT_OID_SHA1_HEXSIZE + 1] = {};
+    git_oid_tostr(text, sizeof text, oid);
+    return QString::fromLatin1(text);
+}
+
+std::optional<git_oid> oidOf(const QString &id)
+{
+    git_oid oid;
+    if (git_oid_fromstr(&oid, id.toLatin1().constData()) != 0)
+        return std::nullopt;
+    return oid;
+}
+
+std::optional<QByteArray> blobIn(git_repository *repo, git_tree *tree, const QString &path)
+{
+    git_tree_entry *rawEntry = nullptr;
+    if (git_tree_entry_bypath(&rawEntry, tree, path.toUtf8().constData()) != 0)
+        return std::nullopt;
+    Owned<git_tree_entry> entry(rawEntry);
+    git_blob *rawBlob = nullptr;
+    if (git_blob_lookup(&rawBlob, repo, git_tree_entry_id(entry.get())) != 0)
+        return std::nullopt;
+    Owned<git_blob> blob(rawBlob);
+    return QByteArray(static_cast<const char *>(git_blob_rawcontent(blob.get())),
+                      qsizetype(git_blob_rawsize(blob.get())));
+}
+
 } // namespace
 
 Library::Library() { git_libgit2_init(); }
 Library::~Library() { git_libgit2_shutdown(); }
 
-QVector<Hunk> diffLines(const QByteArray &oldText, const QByteArray &newText)
+} // namespace git
+
+QVector<vcs::Hunk> vcs::diffLines(const QByteArray &oldText, const QByteArray &newText)
 {
     git_diff_options options = GIT_DIFF_OPTIONS_INIT;
     options.context_lines = 0;
@@ -105,8 +141,8 @@ QVector<Hunk> diffLines(const QByteArray &oldText, const QByteArray &newText)
     QVector<Hunk> hunks;
     auto onHunk = [](const git_diff_delta *, const git_diff_hunk *h, void *payload) {
         static_cast<QVector<Hunk> *>(payload)->append(
-            {toZeroBased(h->old_start, h->old_lines), h->old_lines,
-             toZeroBased(h->new_start, h->new_lines), h->new_lines});
+            {git::toZeroBased(h->old_start, h->old_lines), h->old_lines,
+             git::toZeroBased(h->new_start, h->new_lines), h->new_lines});
         return 0;
     };
     git_diff_buffers(oldText.constData(), size_t(oldText.size()), nullptr,
@@ -114,6 +150,8 @@ QVector<Hunk> diffLines(const QByteArray &oldText, const QByteArray &newText)
                      &options, nullptr, nullptr, onHunk, nullptr, &hunks);
     return hunks;
 }
+
+namespace git {
 
 Repository::~Repository()
 {
@@ -149,6 +187,14 @@ QString Repository::workdir() const
 QString Repository::gitDir() const
 {
     return QString::fromUtf8(git_repository_path(m_repo));
+}
+
+QStringList Repository::watchPaths() const
+{
+    QStringList paths;
+    for (const char *name : {"index", "HEAD", "refs/heads"})
+        paths.append(gitDir() + QLatin1String(name));
+    return paths;
 }
 
 QString Repository::branch() const
@@ -249,16 +295,7 @@ std::optional<QByteArray> Repository::headBlob(const QString &path) const
     if (git_commit_tree(&rawTree, commit.get()) != 0)
         return std::nullopt;
     Owned<git_tree> tree(rawTree);
-    git_tree_entry *rawEntry = nullptr;
-    if (git_tree_entry_bypath(&rawEntry, tree.get(), path.toUtf8().constData()) != 0)
-        return std::nullopt;
-    Owned<git_tree_entry> entry(rawEntry);
-    git_blob *rawBlob = nullptr;
-    if (git_blob_lookup(&rawBlob, m_repo, git_tree_entry_id(entry.get())) != 0)
-        return std::nullopt;
-    Owned<git_blob> blob(rawBlob);
-    return QByteArray(static_cast<const char *>(git_blob_rawcontent(blob.get())),
-                      qsizetype(git_blob_rawsize(blob.get())));
+    return blobIn(m_repo, tree.get(), path);
 }
 
 bool Repository::stage(const QStringList &paths, QString *error)
@@ -339,6 +376,14 @@ bool Repository::commit(const QString &message, QString *error)
            || fail(error);
 }
 
+bool Repository::checkoutTarget(const git_object *target, QString *error)
+{
+    // SAFE: не трогать файлы с незакоммиченными правками — тогда ошибка
+    git_checkout_options options = GIT_CHECKOUT_OPTIONS_INIT;
+    options.checkout_strategy = GIT_CHECKOUT_SAFE;
+    return git_checkout_tree(m_repo, target, &options) == 0 || fail(error);
+}
+
 bool Repository::checkout(const QString &branch, QString *error)
 {
     git_reference *raw = nullptr;
@@ -349,11 +394,8 @@ bool Repository::checkout(const QString &branch, QString *error)
     if (git_reference_peel(&rawTarget, ref.get(), GIT_OBJECT_COMMIT) != 0)
         return fail(error);
     Owned<git_object> target(rawTarget);
-    // SAFE: не трогать файлы с незакоммиченными правками — тогда ошибка
-    git_checkout_options options = GIT_CHECKOUT_OPTIONS_INIT;
-    options.checkout_strategy = GIT_CHECKOUT_SAFE;
-    if (git_checkout_tree(m_repo, target.get(), &options) != 0)
-        return fail(error);
+    if (!checkoutTarget(target.get(), error))
+        return false;
     return git_repository_set_head(m_repo, git_reference_name(ref.get())) == 0 || fail(error);
 }
 
@@ -367,6 +409,153 @@ bool Repository::createBranch(const QString &name, QString *error)
         return fail(error);
     Owned<git_reference> ref(raw);
     return git_repository_set_head(m_repo, git_reference_name(ref.get())) == 0 || fail(error);
+}
+
+QVector<vcs::Commit> Repository::log(int limit) const
+{
+    QVector<vcs::Commit> commits;
+    // Метки: ветки, внешние ветки и теги по коммиту, на который указывают
+    QHash<QString, QVector<vcs::Ref>> refs;
+    const QString current = git_repository_head_detached(m_repo) == 1 ? QString() : branch();
+    git_reference_iterator *rawIt = nullptr;
+    if (git_reference_iterator_new(&rawIt, m_repo) == 0) {
+        Owned<git_reference_iterator> it(rawIt);
+        git_reference *rawRef = nullptr;
+        while (git_reference_next(&rawRef, it.get()) == 0) {
+            Owned<git_reference> ref(rawRef);
+            vcs::Ref r;
+            if (git_reference_is_branch(rawRef))
+                r.kind = vcs::Ref::Branch;
+            else if (git_reference_is_remote(rawRef))
+                r.kind = vcs::Ref::Remote;
+            else if (git_reference_is_tag(rawRef))
+                r.kind = vcs::Ref::Tag;
+            else
+                continue;
+            r.name = QString::fromUtf8(git_reference_shorthand(rawRef));
+            if (r.kind == vcs::Ref::Remote && r.name.endsWith(QLatin1String("/HEAD")))
+                continue;
+            r.current = r.kind == vcs::Ref::Branch && r.name == current;
+            git_object *peeled = nullptr;
+            if (git_reference_peel(&peeled, rawRef, GIT_OBJECT_COMMIT) != 0)
+                continue;
+            Owned<git_object> target(peeled);
+            refs[idOf(git_object_id(peeled))].append(r);
+        }
+    }
+    if (current.isEmpty())
+        if (const Owned<git_commit> head = headCommit(m_repo))
+            refs[idOf(git_commit_id(head.get()))].prepend({QStringLiteral("HEAD"), vcs::Ref::Branch, true});
+
+    git_revwalk *rawWalk = nullptr;
+    if (git_revwalk_new(&rawWalk, m_repo) != 0)
+        return commits;
+    Owned<git_revwalk> walk(rawWalk);
+    git_revwalk_sorting(walk.get(), GIT_SORT_TOPOLOGICAL | GIT_SORT_TIME);
+    git_revwalk_push_head(walk.get());
+    git_revwalk_push_glob(walk.get(), "refs/heads");
+    git_revwalk_push_glob(walk.get(), "refs/remotes");
+    git_revwalk_push_glob(walk.get(), "refs/tags");
+    git_oid oid;
+    while (commits.size() < limit && git_revwalk_next(&oid, walk.get()) == 0) {
+        git_commit *rawCommit = nullptr;
+        if (git_commit_lookup(&rawCommit, m_repo, &oid) != 0)
+            continue;
+        Owned<git_commit> commit(rawCommit);
+        vcs::Commit c;
+        c.id = idOf(&oid);
+        for (unsigned i = 0; i < git_commit_parentcount(rawCommit); ++i)
+            c.parents.append(idOf(git_commit_parent_id(rawCommit, i)));
+        const git_signature *author = git_commit_author(rawCommit);
+        c.author = QString::fromUtf8(author->name);
+        c.email = QString::fromUtf8(author->email);
+        c.time = QDateTime::fromSecsSinceEpoch(author->when.time, QTimeZone::fromSecondsAheadOfUtc(author->when.offset * 60));
+        c.summary = QString::fromUtf8(git_commit_summary(rawCommit));
+        c.message = QString::fromUtf8(git_commit_message(rawCommit)).trimmed();
+        c.refs = refs.value(c.id);
+        commits.append(std::move(c));
+    }
+    return commits;
+}
+
+QVector<vcs::CommitFile> Repository::commitFiles(const QString &id) const
+{
+    QVector<vcs::CommitFile> files;
+    const auto oid = oidOf(id);
+    git_commit *rawCommit = nullptr;
+    if (!oid || git_commit_lookup(&rawCommit, m_repo, &*oid) != 0)
+        return files;
+    Owned<git_commit> commit(rawCommit);
+    git_tree *rawTree = nullptr;
+    if (git_commit_tree(&rawTree, rawCommit) != 0)
+        return files;
+    Owned<git_tree> tree(rawTree);
+    // Сравнение с первым родителем; у первого коммита — с пустым деревом
+    Owned<git_tree> parentTree;
+    git_commit *rawParent = nullptr;
+    if (git_commit_parent(&rawParent, rawCommit, 0) == 0) {
+        Owned<git_commit> parent(rawParent);
+        git_tree *raw = nullptr;
+        if (git_commit_tree(&raw, rawParent) == 0)
+            parentTree.reset(raw);
+    }
+    git_diff *rawDiff = nullptr;
+    if (git_diff_tree_to_tree(&rawDiff, m_repo, parentTree.get(), tree.get(), nullptr) != 0)
+        return files;
+    Owned<git_diff> diff(rawDiff);
+    git_diff_find_similar(rawDiff, nullptr);
+    for (size_t i = 0; i < git_diff_num_deltas(rawDiff); ++i) {
+        const git_diff_delta *d = git_diff_get_delta(rawDiff, i);
+        char status = 'M';
+        switch (d->status) {
+        case GIT_DELTA_ADDED: status = 'A'; break;
+        case GIT_DELTA_DELETED: status = 'D'; break;
+        case GIT_DELTA_RENAMED: status = 'R'; break;
+        default: break;
+        }
+        files.append({QString::fromUtf8(status == 'D' ? d->old_file.path : d->new_file.path), status});
+    }
+    return files;
+}
+
+std::optional<QByteArray> Repository::fileAt(const QString &id, const QString &path) const
+{
+    const auto oid = oidOf(id);
+    git_commit *rawCommit = nullptr;
+    if (!oid || git_commit_lookup(&rawCommit, m_repo, &*oid) != 0)
+        return std::nullopt;
+    Owned<git_commit> commit(rawCommit);
+    git_tree *rawTree = nullptr;
+    if (git_commit_tree(&rawTree, rawCommit) != 0)
+        return std::nullopt;
+    Owned<git_tree> tree(rawTree);
+    return blobIn(m_repo, tree.get(), path);
+}
+
+bool Repository::checkoutCommit(const QString &id, QString *error)
+{
+    const auto oid = oidOf(id);
+    git_object *rawTarget = nullptr;
+    if (!oid || git_object_lookup(&rawTarget, m_repo, &*oid, GIT_OBJECT_COMMIT) != 0)
+        return fail(error);
+    Owned<git_object> target(rawTarget);
+    if (!checkoutTarget(target.get(), error))
+        return false;
+    return git_repository_set_head_detached(m_repo, &*oid) == 0 || fail(error);
+}
+
+bool Repository::createBranchAt(const QString &name, const QString &id, QString *error)
+{
+    const auto oid = oidOf(id);
+    git_commit *rawCommit = nullptr;
+    if (!oid || git_commit_lookup(&rawCommit, m_repo, &*oid) != 0)
+        return fail(error);
+    Owned<git_commit> commit(rawCommit);
+    git_reference *raw = nullptr;
+    if (git_branch_create(&raw, m_repo, name.toUtf8().constData(), rawCommit, 0) != 0)
+        return fail(error);
+    Owned<git_reference> ref(raw);
+    return checkout(name, error);
 }
 
 } // namespace git

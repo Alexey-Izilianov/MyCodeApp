@@ -17,6 +17,11 @@ Rectangle {
         path = filePath
         git.showDiff(filePath, staged, diffEditor)
     }
+    // Файл в коммите против первого родителя
+    function showCommit(id, entry) {
+        path = entry.path
+        git.showCommitDiff(id, entry.relative, diffEditor)
+    }
     function close() {
         if (!visible)
             return

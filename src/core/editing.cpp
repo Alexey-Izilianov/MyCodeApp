@@ -52,6 +52,42 @@ QString expandTabs(const QString &line, QVector<int> *map)
     return out;
 }
 
+QVector<int> wrapStarts(const QString &line, int columns, int *indent)
+{
+    QVector<int> starts{0};
+    int lead = 0;
+    for (const QChar ch : line) {
+        if (ch == u'\t')
+            lead = (lead / kTabWidth + 1) * kTabWidth;
+        else if (ch == u' ')
+            ++lead;
+        else
+            break;
+    }
+    const int shift = lead <= columns / 2 ? lead : 0;
+    if (indent)
+        *indent = shift;
+    if (columns <= 0)
+        return starts;
+    int visual = 0;   // колонка текущего символа
+    int rowStart = 0;
+    int afterSpace = -1; // колонка сразу за последним пробелом ряда
+    for (const QChar ch : line) {
+        const int next = ch == u'\t' ? (visual / kTabWidth + 1) * kTabWidth : visual + 1;
+        const int width = starts.size() == 1 ? columns : columns - shift;
+        const bool space = ch == u' ' || ch == u'\t'; // пробелы «свисают» за край ряда
+        if (next - rowStart > width && visual > rowStart && !space && !ch.isLowSurrogate()) {
+            // Разрыв сразу за отступом дал бы пустой ряд — тогда рвём слово
+            rowStart = afterSpace > rowStart && afterSpace > lead ? afterSpace : visual;
+            starts.append(rowStart);
+        }
+        visual = next;
+        if (space)
+            afterSpace = visual;
+    }
+    return starts;
+}
+
 IndentStyle detectIndent(const TextBuffer &buffer, int maxLines)
 {
     int tabLines = 0, spaceLines = 0;
