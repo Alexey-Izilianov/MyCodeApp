@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(MyCodeApp VERSION 1.0.0 LANGUAGES C CXX)
+project(MyCodeApp VERSION 1.0.2 LANGUAGES C CXX)
 include(GNUInstallDirs)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # для clangd
 

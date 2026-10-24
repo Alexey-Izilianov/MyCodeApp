@@ -2318,7 +2318,9 @@ void EditorView::setRects(QSGNode *layer, QVector<QSGSimpleRectNode *> &pool,
 
 QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
-    if (m_resetScene) {
+    // Программный рендер Qt теряет трансформ и клип у нод, добавленных после первого
+    // кадра (текст, подсветки), — там сцена строится заново каждый кадр
+    if (m_resetScene || window()->rendererInterface()->graphicsApi() == QSGRendererInterface::Software) {
         m_resetScene = false;
         delete oldNode;
         oldNode = nullptr;
@@ -2351,9 +2353,6 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_foldLayer = new QSGNode;
         m_textLayer = new QSGNode;
         m_caretLayer = new QSGNode;
-        // Без своего клипа программный рендер (--software) рисовал номера у края окна
-        m_gutterClip = new QSGClipNode;
-        m_gutterClip->setIsRectangular(true);
         m_gutterTransform = new QSGTransformNode;
         m_gutterNode = window()->createTextNode();
         m_gutterNode->setRenderType(QSGTextNode::NativeRendering);
@@ -2379,8 +2378,7 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             m_textTransform->appendChildNode(m_diagnosticNodes[i]);
         }
         m_textTransform->appendChildNode(m_caretLayer);
-        m_root->appendChildNode(m_gutterClip);
-        m_gutterClip->appendChildNode(m_gutterTransform);
+        m_root->appendChildNode(m_gutterTransform);
         m_gutterTransform->appendChildNode(m_gutterNode);
         m_gutterTransform->appendChildNode(m_gutterCurrentNode);
         m_gutterTransform->appendChildNode(m_foldMarkers);
@@ -2468,7 +2466,6 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     m_gutterTransform->setMatrix(gutterMatrix);
     // Клип чуть левее текста: каретка в колонке 0 не должна обрезаться
     m_textClip->setClipRect(QRectF(textLeft() - 4, 0, textWidth() + 4, height()));
-    m_gutterClip->setClipRect(QRectF(0, 0, m_gutterWidth, height()));
 
     QVector<QPair<QRectF, QColor>> currentLines;
     for (int line : std::as_const(caretLines))

@@ -420,7 +420,6 @@ private:
     QSGNode *m_changeLayer = nullptr; // полоски изменений в gutter
     QSGClipNode *m_textClip = nullptr;
     QSGTransformNode *m_textTransform = nullptr;
-    QSGClipNode *m_gutterClip = nullptr;
     QSGTransformNode *m_gutterTransform = nullptr;
     QSGNode *m_selectionLayer = nullptr;
     QSGNode *m_matchLayer = nullptr;
