@@ -33,8 +33,8 @@ declare -A renamed=(
     [libc6]="libc6 (>= 2.24)"
 )
 export LC_ALL=C # readelf и dpkg в русской локали пишут не «Shared library»
-needed=$(find "$APP" -type f -exec sh -c 'head -c4 "$1" | grep -q ELF' _ {} \; -print0 \
-         | xargs -0 readelf -d 2>/dev/null | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | sort -u)
+mapfile -d '' elves < <(find "$APP" -type f -exec sh -c 'head -c4 "$1" | grep -q ELF' _ {} \; -print0)
+needed=$(readelf -d "${elves[@]}" 2>/dev/null | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | sort -u)
 libraries=$(/sbin/ldconfig -p) # один раз: awk с exit в конвейере обрывал ldconfig (SIGPIPE + pipefail)
 packages=()
 for lib in $needed; do
@@ -46,6 +46,19 @@ for lib in $needed; do
 done
 [ ${#packages[@]} -gt 0 ] || { echo "!! не найдено ни одной системной зависимости — проверьте readelf"; exit 1; }
 depends=$(printf '%s\n' "${packages[@]}" | sort -u | while read -r p; do echo "${renamed[$p]:-$p}"; done | paste -sd, | sed 's/,/, /g')
+
+# ЗПС (замкнутая программная среда): с SIGN_KEY=<id ключа GPG> все ELF пакета подписываются
+# bsign. Ключ — без пароля или с паролем в gpg-agent; открытый ключ администратор кладёт
+# в /etc/digsig/keys (см. docs/operator-guide.md). Без SIGN_KEY пакет не подписан
+if [ -n "${SIGN_KEY:-}" ]; then
+    printf '%s\n' "${elves[@]}" > "$LOGS/sign-files.txt"
+    step sign bsign -N -s -E -f "$LOGS/sign-files.txt" --pgoptions="--batch --default-key=$SIGN_KEY"
+    # bsign -V сверяет только с ключами, загруженными в систему, — здесь лишь наличие подписи
+    for elf in "${elves[@]}"; do # без конвейера в grep -q: SIGPIPE + pipefail дают ложный провал
+        [[ $(bsign -w "$elf" 2>/dev/null) == *$'\nsignature:'* ]] || { echo "!! не подписан: $elf"; exit 1; }
+    done
+    echo "== подписано ключом $SIGN_KEY: ${#elves[@]} файлов"
+fi
 
 mkdir -p "$STAGE/DEBIAN"
 cat > "$STAGE/DEBIAN/control" <<EOF

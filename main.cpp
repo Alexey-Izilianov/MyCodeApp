@@ -1,5 +1,6 @@
 #include <QGuiApplication>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QIcon>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
@@ -64,6 +65,20 @@ static void chooseRenderer(bool software)
     }
 }
 
+// Шрифт интерфейса Fly — PT Astra Sans; Qt без своей темы для Fly его не знает и берёт
+// fontconfig sans-serif (Noto Sans). Где шрифта нет (не Astra), остаётся системный
+static void chooseUiFont()
+{
+#ifdef Q_OS_LINUX
+    const QString astraSans = QStringLiteral("PT Astra Sans");
+    if (QFontDatabase::hasFamily(astraSans)) {
+        QFont font = QGuiApplication::font();
+        font.setFamily(astraSans);
+        QGuiApplication::setFont(font);
+    }
+#endif
+}
+
 static void bringToFront(QQuickWindow *window)
 {
     if (window->windowStates() & Qt::WindowMinimized)
@@ -106,6 +121,7 @@ int main(int argc, char *argv[])
     spdlog::info("main: старт");
     Localization::applySavedLanguage();
     chooseRenderer(software);
+    chooseUiFont();
 
     QQmlApplicationEngine engine;
     QWK::registerTypes(&engine); // WindowAgent для своей строки заголовка

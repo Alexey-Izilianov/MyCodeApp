@@ -138,6 +138,8 @@ build/Release/appMyCodeApp.exe [--profile имя] [--software] [файл|пап�
 Astra Linux: скрипты в [tools/astra](tools/astra) — Qt 6.11 из исходников
 (`build-deps.sh`, `build-qt.sh`, один раз), затем `build.sh` (сборка и тесты)
 и `package.sh` (пакет `mycodeapp_<версия>_amd64.deb` в `/opt/mycodeapp`).
+Для замкнутой программной среды — `SIGN_KEY=<id ключа GPG> package.sh`: все ELF
+пакета подписываются `bsign`.
 
 После правки строк интерфейса — обновить перевод:
 `cmake --build build/Release --target update_translations`, затем перевести

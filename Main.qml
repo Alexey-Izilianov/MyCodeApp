@@ -98,6 +98,18 @@ ApplicationWindow {
         function onAboutToQuit() { window.saveSession() } // любой выход: окно, Ctrl+Q, завершение сеанса
     }
 
+    // Кайма невыведенного во весь экран окна: на Windows её и тень рисует система, на Linux
+    // своей рамки нет (Fly не декорирует окно), и тёмный край теряется на фоне рабочего стола
+    Rectangle {
+        parent: window.contentItem.parent // поверх строки заголовка (header — вне contentItem)
+        anchors.fill: parent
+        z: 1000
+        visible: Qt.platform.os === "linux" && window.visibility === Window.Windowed
+        color: "transparent"
+        border.width: 1
+        border.color: Theme.border
+    }
+
     function openFolder(url) {
         saveSession()
         const opened = workspace.open(url)
