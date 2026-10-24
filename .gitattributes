@@ -1,0 +1,3 @@
+# Скрипты и файлы для Linux (Astra) — всегда с LF, иначе bash и dpkg их не поймут
+*.sh text eol=lf
+tools/astra/** text eol=lf

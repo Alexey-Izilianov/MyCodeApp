@@ -17,7 +17,8 @@ Item {
         Repeater {
             model: [{ mode: "files", icon: "files", tip: qsTr("Проводник") },
                     { mode: "search", icon: "search", tip: qsTr("Поиск по проекту") },
-                    { mode: "git", icon: "git", tip: qsTr("Git") }]
+                    { mode: "git", icon: "git", tip: qsTr("Git") },
+                    { mode: "assistant", icon: "assistant", tip: qsTr("Ассистент") }]
             ActivityButton {
                 required property var modelData
                 iconName: modelData.icon

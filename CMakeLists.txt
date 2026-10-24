@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(MyCodeApp VERSION 1.0.0 LANGUAGES C CXX)
+include(GNUInstallDirs)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # для clangd
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -168,7 +169,7 @@ qt_add_qml_module(appMyCodeApp
         qml/CompletionPopup.qml qml/HoverPopup.qml qml/BottomPanel.qml qml/RenamePopup.qml
         qml/GitPanel.qml qml/DiffView.qml qml/HistoryView.qml qml/Command.qml qml/SettingsDialog.qml qml/PluginsPage.qml qml/GoToLinePopup.qml qml/AboutDialog.qml
         qml/TitleBar.qml qml/WindowButton.qml qml/ActivityBar.qml qml/ActivityButton.qml
-        qml/LineIcon.qml qml/IslandCorners.qml
+        qml/LineIcon.qml qml/IslandCorners.qml qml/AssistantPanel.qml qml/AssistantSettings.qml
         SOURCES src/gui/editerview.h src/gui/editerview.cpp
                 src/gui/minimap.h src/gui/minimap.cpp
                 src/services/workspace.h src/services/workspace.cpp
@@ -184,7 +185,9 @@ qt_add_qml_module(appMyCodeApp
                 src/services/snippetstore.h src/services/snippetstore.cpp
                 src/services/localization.h src/services/localization.cpp
                 src/services/appinfo.h
-               src/services/documentmanager.h src/services/documentmanager.cpp
+                src/services/documentmanager.h src/services/documentmanager.cpp
+                src/assistant/assistant.h src/assistant/assistant.cpp
+                src/assistant/chatmodel.h src/assistant/chatmodel.cpp
 )
 
 # Служебные классы вне QML-модуля
@@ -197,6 +200,7 @@ target_sources(appMyCodeApp PRIVATE
     ${VCS_SOURCES}
     src/services/singleinstance.h src/services/singleinstance.cpp
     src/services/appsettings.h src/services/appsettings.cpp
+    src/assistant/prompting.h src/assistant/prompting.cpp
     ${SYNTAX_SOURCES}
 )
 
@@ -241,7 +245,7 @@ set_target_properties(appMyCodeApp PROPERTIES
 target_include_directories(appMyCodeApp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src/gui
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core ${CMAKE_CURRENT_SOURCE_DIR}/src/services
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/lsp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/lsp ${CMAKE_CURRENT_SOURCE_DIR}/src/assistant)
 
 enable_testing()
 qt_add_executable(test_core ${CORE_SOURCES} tests/textbuffer_test.cpp)
@@ -342,7 +346,21 @@ install(TARGETS appMyCodeApp
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+# Linux (Astra): программа в bin, Qt и свои библиотеки — в lib рядом, плагины редактора — в bin/plugins.
+# Пакет собирает tools/astra/package.sh
+if(UNIX AND NOT APPLE)
+    set_target_properties(appMyCodeApp PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+    install(TARGETS texttools LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR}/plugins)
+    qt_generate_deploy_qml_app_script(TARGET appMyCodeApp OUTPUT_SCRIPT deploy_script)
+    install(SCRIPT ${deploy_script})
+endif()
+
 qt_add_executable(test_snippet src/core/snippet.h src/core/snippet.cpp tests/snippet_test.cpp)
 target_include_directories(test_snippet PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_snippet PRIVATE Qt6::Test)
 add_test(NAME snippet COMMAND test_snippet)
+
+qt_add_executable(test_assistant src/assistant/prompting.h src/assistant/prompting.cpp tests/assistant_test.cpp)
+target_include_directories(test_assistant PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_assistant PRIVATE Qt6::Test)
+add_test(NAME assistant COMMAND test_assistant)

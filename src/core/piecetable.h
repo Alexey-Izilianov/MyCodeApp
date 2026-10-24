@@ -63,8 +63,8 @@ public:
         QString textAt(int offset, int count) const { return m_core.textAt(offset, count); }
         QString toString() const { return m_core.toString(); }
         QStringList lines() const;
-        // Все строки по порядку; у отображённого файла — без поиска начала каждой
-        void forEachLine(const std::function<bool(int, const QString &)> &fn) const;
+        // Строки по порядку начиная с from; у отображённого файла — без поиска начала каждой
+        void forEachLine(const std::function<bool(int, const QString &)> &fn, int from = 0) const;
         // Непрерывный фрагмент текста с offset до конца куска — без копирования
         // (читатель tree-sitter). Указатель живёт, пока жив снимок; в конце
         // текста и у отображённого файла *length == 0.

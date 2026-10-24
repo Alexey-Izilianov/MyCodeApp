@@ -10,6 +10,7 @@ Rectangle {
     required property Workspace workspace
     property string mode: "problems" // "problems" | "references"
     signal openAt(string path, int line, int column)
+    signal explainProblem(string path, int line, string message)
 
     readonly property var severityColors: [Theme.error, Theme.warning, Theme.info, Theme.info]
 
@@ -87,6 +88,7 @@ Rectangle {
         property int column
         property color marker: "transparent"
         property string text
+        property bool explainable: false
         width: ListView.view.width
         height: 24
         color: hover.hovered ? Theme.hover : "transparent"
@@ -111,8 +113,8 @@ Rectangle {
         Label {
             anchors.left: message.right
             anchors.leftMargin: 12
-            anchors.right: parent.right
-            anchors.rightMargin: 12
+            anchors.right: explain.visible ? explain.left : parent.right
+            anchors.rightMargin: explain.visible ? 6 : 12
             anchors.verticalCenter: parent.verticalCenter
             text: panel.workspace.relativePath(entry.path) + ":" + (entry.line + 1)
             color: Theme.faint
@@ -120,6 +122,19 @@ Rectangle {
             elide: Text.ElideLeft
         }
         TapHandler { onTapped: panel.openAt(entry.path, entry.line, entry.column) }
+        FlatButton {
+            id: explain
+            visible: entry.explainable && hover.hovered
+            anchors.right: parent.right
+            anchors.rightMargin: 8
+            anchors.verticalCenter: parent.verticalCenter
+            implicitHeight: 20
+            leftPadding: 8
+            rightPadding: 8
+            font.pixelSize: Theme.smallFontSize
+            text: qsTr("Объяснить")
+            onClicked: panel.explainProblem(entry.path, entry.line, entry.text)
+        }
     }
 
     StackLayout {
@@ -142,6 +157,7 @@ Rectangle {
                 column: modelData.column
                 marker: panel.severityColors[Math.max(0, modelData.severity - 1)]
                 text: modelData.message
+                explainable: true
             }
         }
         ListView {

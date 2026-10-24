@@ -28,6 +28,8 @@ struct Hunk {
 
 // Построчное сравнение двух текстов (переводы строк — '\n')
 QVector<Hunk> diffLines(const QByteArray &oldText, const QByteArray &newText);
+// Изменения файла в формате unified diff (как git diff) с context строками вокруг; без изменений — пусто
+QString unifiedDiff(const QString &path, const QString &oldText, const QString &newText, int context = 3);
 
 struct Ref {
     enum Kind { Branch, Remote, Tag, Bookmark };

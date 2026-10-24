@@ -18,11 +18,6 @@ constexpr int kMaxMarkedChars = 4000000;  // больше — полоски и�
 constexpr int kMinPollMs = 3000;
 constexpr int kHistoryLimit = 5000;       // коммитов во вкладке «История»
 
-QString key(const QString &path)
-{
-    return QDir::cleanPath(path).toLower();
-}
-
 // Байты из репозитория/с диска -> текст с '\n' (кодировка определяется как при открытии файла)
 QString decode(const QByteArray &bytes)
 {
@@ -75,6 +70,8 @@ GitService::GitService(QObject *parent)
     , m_history(this)
 {
     m_pool.setMaxThreadCount(1); // операции строго по очереди
+    // Поток не должен завершаться по простою: в нём живут сессии hg вместе с отметками «В коммит»
+    m_pool.setExpiryTimeout(-1);
     m_refreshDelay.setSingleShot(true);
     m_refreshDelay.setInterval(300);
     connect(&m_refreshDelay, &QTimer::timeout, this, &GitService::refresh);
@@ -97,6 +94,8 @@ GitService::GitService(QObject *parent)
 GitService::~GitService()
 {
     m_pool.clear();
+    // Сессии hg закрываем задачей в живом потоке: при его завершении QProcess уже не остановить
+    m_pool.start([] { hg::Repository::closeSessions(); });
     m_pool.waitForDone();
 }
 
@@ -218,11 +217,11 @@ void GitService::applySnapshot(const Snapshot &snapshot)
         const QString path = m_workdir + s.path;
         const QChar letter = treeLetter(s);
         if (!letter.isNull()) {
-            m_fileMarks.insert(key(path), letter);
+            m_fileMarks.insert(DocumentManager::pathKey(path), letter);
             m_decorated.append(path);
             // Папки до корня рабочей копии — по самому важному изменению внутри
             for (QString dir = QFileInfo(path).path(); dir.size() >= root.size(); dir = QFileInfo(dir).path()) {
-                QChar &mark = m_dirMarks[key(dir)];
+                QChar &mark = m_dirMarks[DocumentManager::pathKey(dir)];
                 if (priority(letter) <= priority(mark))
                     break;
                 mark = letter;
@@ -277,7 +276,7 @@ void GitService::watch(const QStringList &paths)
 
 QString GitService::decorationOf(const QString &path, bool isDir) const
 {
-    const QChar letter = (isDir ? m_dirMarks : m_fileMarks).value(key(path));
+    const QChar letter = (isDir ? m_dirMarks : m_fileMarks).value(DocumentManager::pathKey(path));
     return letter.isNull() ? QString() : QString(letter);
 }
 
@@ -309,13 +308,7 @@ QStringList GitService::relatives(const QStringList &paths) const
 
 core::Document *GitService::openDocument(const QString &path) const
 {
-    if (!m_documents)
-        return nullptr;
-    const QString wanted = key(path);
-    for (core::Document *doc : m_documents->documents())
-        if (key(doc->filePath()) == wanted)
-            return doc;
-    return nullptr;
+    return m_documents ? m_documents->find(path) : nullptr;
 }
 
 void GitService::stage(const QStringList &paths)
@@ -363,6 +356,46 @@ void GitService::commit(const QString &message)
     }
     runOperation([text](vcs::Repository &repo, QString *error) { return repo.commit(text, error); },
                  [this] { emit committed(); }, true);
+}
+
+void GitService::requestCommitDiff(int budget)
+{
+    // Что уйдёт в коммит; пока ничего не отмечено — все изменения
+    const bool staged = !m_staged.isEmpty();
+    QStringList files;
+    for (const QVariant &entry : std::as_const(staged ? m_staged : m_changes))
+        files.append(entry.toMap().value(QStringLiteral("relative")).toString());
+    auto diff = std::make_shared<QString>();
+    run([files, staged, hasIndex = m_hasIndex, budget, diff](vcs::Repository &repo) {
+        constexpr int kMinPart = 200; // меньше места не осталось — дальше только имена файлов
+        QStringList skipped;
+        for (const QString &rel : files) {
+            if (budget - diff->size() < kMinPart) {
+                skipped.append(rel);
+                continue;
+            }
+            QByteArray after;
+            if (staged && hasIndex) {
+                after = repo.indexBlob(rel).value_or(QByteArray());
+            } else if (QFile file(repo.workdir() + rel); file.open(QIODevice::ReadOnly)) {
+                after = file.read(kMaxMarkedChars + 1);
+            }
+            const QByteArray before = repo.headBlob(rel).value_or(QByteArray());
+            if (before.size() > kMaxMarkedChars || after.size() > kMaxMarkedChars) { // слишком большой — только имя
+                skipped.append(rel);
+                continue;
+            }
+            const QString part = core::TextBuffer::looksBinary(before) || core::TextBuffer::looksBinary(after)
+                                     ? QStringLiteral("Binary file %1 changed\n").arg(rel)
+                                     : vcs::unifiedDiff(rel, decode(before), decode(after));
+            if (diff->size() + part.size() > budget)
+                skipped.append(rel);
+            else
+                *diff += part;
+        }
+        if (!skipped.isEmpty())
+            *diff += QStringLiteral("\n# also changed, too large to show: ") + skipped.join(QStringLiteral(", ")) + u'\n';
+    }, [this, diff] { emit commitDiffReady(*diff); });
 }
 
 void GitService::checkout(const QString &branch)

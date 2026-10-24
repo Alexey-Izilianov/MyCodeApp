@@ -34,6 +34,9 @@ public:
     void setCurrentIndex(int index);
     QObject *currentDocument() const;
     const QVector<core::Document *> &documents() const { return m_docs; }
+    core::Document *find(const QString &path) const; // открытый документ по пути
+    // Ключ для сравнения путей: регистр не важен только на Windows
+    static QString pathKey(const QString &path);
     QVariantList tabs() const; // [{name, dirty, path}, ...]
     bool isLoading() const { return !m_loadingDocs.isEmpty(); }
     int loadPercent() const { return m_loadPercent; }

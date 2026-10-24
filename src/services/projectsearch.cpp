@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QStringDecoder>
 
+#include "src/core/textbuffer.h"
 #include "workspace.h"
 
 namespace {
@@ -107,9 +108,8 @@ void ProjectSearch::start(const QString &needle, bool caseSensitive)
             if (file.size() > kMaxFileSize || !file.open(QIODevice::ReadOnly))
                 continue;
             const QByteArray bytes = file.readAll();
-            const bool utf16 = bytes.startsWith("\xFF\xFE") || bytes.startsWith("\xFE\xFF");
-            if (!utf16 && bytes.left(8192).contains('\0'))
-                continue; // двоичный файл
+            if (core::TextBuffer::looksBinary(bytes))
+                continue;
 
             FileResult result{file.fileName(), relative,
                               searchText(decode(bytes), needle, cs, kMaxMatches - matches)};

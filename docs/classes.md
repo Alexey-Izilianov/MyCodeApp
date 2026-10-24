@@ -13,10 +13,11 @@
 5. [Сервисы — `src/services`](#5-сервисы--srcservices)
 6. [Языковые серверы — `src/lsp`](#6-языковые-серверы--srclsp)
 7. [Контроль версий — `src/git`](#7-контроль-версий--srcgit)
-8. [API плагинов — `include/mycodeapp`](#8-api-плагинов--includemycodeapp)
-9. [Интерфейс — `qml`](#9-интерфейс--qml)
-10. [Точка входа — `main.cpp`](#10-точка-входа--maincpp)
-11. [Как расширять](#11-как-расширять)
+8. [Ассистент — `src/assistant`](#8-ассистент--srcassistant)
+9. [API плагинов — `include/mycodeapp`](#9-api-плагинов--includemycodeapp)
+10. [Интерфейс — `qml`](#10-интерфейс--qml)
+11. [Точка входа — `main.cpp`](#11-точка-входа--maincpp)
+12. [Как расширять](#12-как-расширять)
 
 ---
 
@@ -48,8 +49,10 @@ flowchart TB
     GitService --> Repository[vcs::Repository]
     Repository --> GitRepo[git::Repository] & HgRepo[hg::Repository]
     GitService --> HistoryModel
+    Assistant[AssistantService] --> ChatModel
+    Assistant --> DocumentManager
 
-    Main --> EditorView & DocumentManager & Workspace & LspManager & GitService & PluginManager
+    Main --> EditorView & DocumentManager & Workspace & LspManager & GitService & PluginManager & Assistant
     EditorView --> Document
     EditorView --> SyntaxHighlighter & Highlighter & SearchEngine
     DocumentManager --> Document
@@ -112,8 +115,8 @@ flowchart TB
 | `verify()` | сверка индекса с текстом — только для тестов |
 
 **`PieceTable::Snapshot`** — копия состояния (контейнеры Qt с неявным
-разделением). Правки живой таблицы его не задевают. `forEachLine` проходит все
-строки без поиска начала каждой; `chunkAt` отдаёт непрерывный кусок без
+разделением). Правки живой таблицы его не задевают. `forEachLine(fn, from)` проходит
+строки с `from` без поиска начала каждой; `chunkAt` отдаёт непрерывный кусок без
 копирования (читатель tree-sitter).
 
 ### `core::MappedText`
@@ -213,7 +216,7 @@ flowchart TB
 |---|---|
 | Правка | `copy`, `cut`, `paste`, `undo`, `redo`, `save`, `applyTextEdits(edits, caretEdit, caretOffset)` — правки от LSP одним шагом |
 | Курсоры | `selectNextOccurrence`, `addCaretVertical`, `singleCaret`, `goTo(line, column, length)` |
-| Для плагинов | `text`, `setText`, `selectedText`, `replaceSelection` |
+| Для плагинов и ассистента | `text`, `setText`, `selectedText`, `replaceSelection`, `hasSelection` (свойство); из C++ — `textDocument()`, `selectedLines(from, to)`, `languageOf(path)` |
 | Сниппеты | `insertSnippet(body, line, from, to)`, `snippetActive`; Tab / Shift+Tab / Esc обрабатывает сам |
 | Сворачивание | `foldAtCursor`, `unfoldAtCursor`, `foldAll`, `unfoldAll` |
 | Поиск | `find`, `findNext`, `findPrev`, `clearSearch`; сигнал `searchUpdated` |
@@ -244,7 +247,9 @@ flowchart TB
 (`QFileSystemWatcher` + опрос раз в 2 с): без правок — тихо перечитывает,
 с правками — сигнал `externalChange` (диалог «Загрузить с диска / Оставить мою»).
 Подключает документы к `RecoveryManager`; `restoreUnsaved()` открывает файлы
-из журналов при старте.
+из журналов при старте. `find(path)` — открытый документ по пути (им пользуются
+LSP, Git и ассистент); `pathKey(path)` — ключ для сравнения путей: регистр
+не важен только на Windows.
 
 ### `RecoveryManager`
 Журнал несохранённых правок: на документ — файл `<папка данных>/recovery/<хэш>.log`
@@ -393,6 +398,8 @@ flowchart TB
 - `vcs::discover(path)` — ближайший вверх по папкам репозиторий `.git` или `.hg`
   (вложенный важнее внешнего); `vcs::init(kind, path)`.
 - `vcs::diffLines(old, new)` — построчные участки (`Hunk`) без контекста.
+- `vcs::unifiedDiff(path, old, new, context)` — изменения файла текстом в формате
+  `git diff` (для сообщения коммита от ассистента).
 - `vcs::layoutGraph(commits)` — раскладка графа истории: для каждого коммита
   дорожка, цвет и рёбра ряда (`Through` — мимо, `In` — сверху в точку,
   `Out` — к родителю).
@@ -435,10 +442,72 @@ flowchart TB
 | `loadCommitFiles(id)` → `commitFilesReady(id, files)` | файлы коммита в формате `changes` |
 | `showCommitDiff(id, relativePath, target)` | изменения файла в коммите против первого родителя |
 | `checkoutCommit(id)`, `createBranchAt(name, id)` | действия из истории |
+| `requestCommitDiff(budget)` → `commitDiffReady(diff)` | изменения будущего коммита (отмеченные, без них — все) текстом diff не длиннее `budget` символов |
+
+Поток пула не завершается по простою (`setExpiryTimeout(-1)`): в нём живут сессии hg
+с отметками «В коммит». При смене папки и в деструкторе они закрываются задачей в
+этом же потоке.
 
 ---
 
-## 8. API плагинов — `include/mycodeapp`
+## 8. Ассистент — `src/assistant`
+
+Офлайн-ассистент: локальная модель через Ollama (`/api/chat`) или
+OpenAI-совместимый сервер (`/v1/chat/completions`: llama.cpp server, vLLM,
+LM Studio) на этой машине или в локальной сети. Рекомендуемая модель —
+Qwen3-4B-Instruct-2507 (Apache 2.0); замер на CPU — `PLAN.md`, этап 9.
+
+### `assistant::` (`prompting.h`, чистые функции)
+Без сети и интерфейса, покрыты `tests/assistant_test.cpp`.
+
+- **`StreamParser`** — разбор потокового ответа: строки JSON (Ollama) или
+  события SSE (OpenAI). Копит неполные строки между кусками; `Delta` — текст,
+  рассуждение (`thinking`, не показывается), ошибка, конец и счётчики токенов.
+- **`errorFromBody`** — текст ошибки из тела ответа HTTP.
+- **`excerpt(lineAt, from, to, center, budget)`** — строки целиком или окно
+  вокруг `center` в пределах бюджета символов (файл не читается дальше бюджета).
+- **`LogDigest`** — выжимка журнала любого размера за один проход: начало,
+  ошибки и предупреждения (повторы, отличающиеся только числами, — одной строкой
+  с «xN»), конец. Малый журнал отдаётся целиком.
+- **`firstCodeBlock`**, **`cleanCommitMessage`** — код и сообщение коммита из ответа.
+- **`placeComment(lines, firstLine, language, comment)`** — куда вставить
+  документирующий комментарий: над первой непустой строкой с её отступом; в
+  Python — docstring после заголовка `def`/`class` (в том числе многострочного).
+
+### `ChatModel` (`QAbstractListModel`)
+Разговор. Роли: `user`, `text`, `error`, `stats`, `done`, `comment` (ответ —
+комментарий к коду, есть куда вставить), `hasCode`. Ответ дописывается в
+последнюю строку (`appendText`). У сообщения есть `prompt` — то, что ушло модели
+(с кодом), и сведения о коде для вставки комментария.
+
+### `AssistantService` (QML: `Assistant`)
+Запросы к серверу через `QNetworkAccessManager`, ответ — потоком. Один ответ
+разговора и одно сообщение коммита могут идти одновременно; новая задача
+обрывает прошлый ответ (обрыв соединения останавливает генерацию на сервере).
+Подсказки модели — через `tr()`: язык ответа совпадает с языком интерфейса.
+
+| Член | Назначение |
+|---|---|
+| `provider`, `endpoint`, `model`, `apiKey`, `contextSize` | настройки (`settings.json`, ключи `assistant.*`) |
+| `messages` | `ChatModel` разговора |
+| `phase`, `busy` | `reading` (готовит текст), `waiting` (модель читает запрос), `thinking`, `writing` |
+| `ask(question, editor, withSelection)` | свободный вопрос, при желании с выделенным кодом |
+| `explainCode(editor)` | выделенное; без выделения — ≈6000 символов вокруг курсора |
+| `documentCode(editor)`, `insertComment(row, editor)` | комментарий к выделенному и его вставка (код ищется рядом с прежним местом, если его сдвинули) |
+| `explainProblem(path, line, message)` | ошибка компилятора/clangd с кодом вокруг (номера строк) |
+| `summarizeLog(editor)` | выжимка `LogDigest` в фоне по снимку текста, затем запрос |
+| `suggestCommitMessage(diff)` → `commitDraft`, `commitBusy` | сообщение коммита пишется прямо в поле панели Git |
+| `checkServer()` → `serverState`, `serverText`, `models` | проверка сервера и наличия модели |
+| `inputBudget`, `diffBudget()` | сколько символов можно отдать модели |
+
+История разговора отправляется с конца, пока помещается в контекст. На CPU
+модель читает запрос ~50 токенов/с, поэтому без явного выделения, в выжимке
+журнала (9000 символов) и в diff (8000) текст ограничен сильнее, чем позволяет
+контекст.
+
+---
+
+## 9. API плагинов — `include/mycodeapp`
 
 `plugin.h` — единственный заголовок для плагина:
 
@@ -474,7 +543,7 @@ public:
 
 ---
 
-## 9. Интерфейс — `qml`
+## 10. Интерфейс — `qml`
 
 | Файл | Назначение |
 |---|---|
@@ -483,18 +552,19 @@ public:
 | `Command.qml` | пункт меню с настраиваемым сочетанием (`Keymap`) |
 | `AppMenu.qml`, `AppMenuSeparator.qml` | оформление меню |
 | `TabStrip.qml`, `StatusBar.qml`, `EmptyState.qml`, `LoadOverlay.qml` | вкладки, строка состояния, пустой экран, загрузка |
-| `Sidebar.qml` | боковая панель: `FileTree.qml`, `SearchPanel.qml`, `GitPanel.qml` |
+| `Sidebar.qml` | боковая панель: `FileTree.qml`, `SearchPanel.qml`, `GitPanel.qml`, `AssistantPanel.qml` |
+| `AssistantPanel.qml`, `AssistantSettings.qml` | разговор с ассистентом; его страница настроек |
 | `FindBar.qml`, `QuickOpen.qml`, `GoToLinePopup.qml` | поиск в файле, Ctrl+P, переход к строке |
 | `CompletionPopup.qml`, `HoverPopup.qml`, `RenamePopup.qml`, `BottomPanel.qml` | LSP: автодополнение, подсказки, переименование, «Проблемы» и ссылки |
 | `DiffView.qml` | просмотр изменений файла (рабочей копии или в коммите) поверх редактора |
 | `HistoryView.qml` | история: граф коммитов на `Canvas`, сообщение и файлы выбранного коммита, меню действий |
-| `SettingsDialog.qml`, `PluginsPage.qml` | настройки: внешний вид, клавиши, плагины |
+| `SettingsDialog.qml`, `PluginsPage.qml` | настройки: внешний вид, клавиши, плагины, ассистент |
 | `CloseDialog.qml`, `ReloadDialog.qml`, `AboutDialog.qml` | диалоги |
 | `FileIcon.qml`, `IconButton.qml`, `FlatButton.qml`, `SearchField.qml`, `CrossIcon.qml` | элементы оформления |
 
 ---
 
-## 10. Точка входа — `main.cpp`
+## 11. Точка входа — `main.cpp`
 
 1. Разбор аргументов: `--profile имя`, пути файлов и папок (делаются абсолютными).
 2. `initAppDataDir` — папка данных (портативный режим, профиль).
@@ -506,7 +576,7 @@ public:
 
 ---
 
-## 11. Как расширять
+## 12. Как расширять
 
 | Задача | Что сделать |
 |---|---|

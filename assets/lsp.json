@@ -3,7 +3,7 @@
         "clangd": {
             "extensions": ["c", "h", "cc", "cpp", "cxx", "hh", "hpp", "hxx", "inl"],
             "command": ["clangd", "--background-index", "--header-insertion=never", "--clang-tidy=false",
-                        "--query-driver=**/*g++*.exe,**/*gcc*.exe,**/c++.exe,**/cc.exe"],
+                        "--query-driver=**/*g++*,**/*gcc*,**/c++*,**/cc*"],
             "candidates": ["${QT_ROOT}/Tools/QtCreator/bin/clang/bin/clangd.exe",
                            "C:/Qt/Tools/QtCreator/bin/clang/bin/clangd.exe",
                            "C:/Program Files/LLVM/bin/clangd.exe"],
@@ -21,7 +21,7 @@
         "qmlls": {
             "extensions": ["qml"],
             "command": ["qmlls"],
-            "candidates": ["${QT_BIN}/qmlls.exe", "C:/Qt/*/mingw_64/bin/qmlls.exe", "C:/Qt/*/msvc*_64/bin/qmlls.exe"]
+            "candidates": ["${QT_BIN}/qmlls.exe", "${QT_BIN}/qmlls", "C:/Qt/*/mingw_64/bin/qmlls.exe", "C:/Qt/*/msvc*_64/bin/qmlls.exe"]
         }
     }
 }

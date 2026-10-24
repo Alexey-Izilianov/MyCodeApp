@@ -285,7 +285,7 @@ Rectangle {
                 width: 64
                 text: row.shortId
                 color: Theme.faint
-                font.family: "Consolas"
+                font.family: Theme.monoFamily
                 font.pixelSize: Theme.smallFontSize
             }
         }
@@ -375,7 +375,7 @@ Rectangle {
                     color: Theme.faint
                     selectionColor: Theme.selection
                     selectedTextColor: Theme.text
-                    font.family: "Consolas"
+                    font.family: Theme.monoFamily
                     font.pixelSize: Theme.smallFontSize
                 }
             }

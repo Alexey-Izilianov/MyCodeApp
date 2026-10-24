@@ -92,14 +92,14 @@ QStringList PieceTable::Snapshot::lines() const
     return out;
 }
 
-void PieceTable::Snapshot::forEachLine(const std::function<bool(int, const QString &)> &fn) const
+void PieceTable::Snapshot::forEachLine(const std::function<bool(int, const QString &)> &fn, int from) const
 {
     const auto &pieces = m_core.pieces;
     if (m_core.mapped && pieces.size() == 1 && pieces.first().bufferIndex == 0) {
-        m_core.mapped->forEachLine(fn);
+        m_core.mapped->forEachLine(fn, from);
         return;
     }
-    for (int i = 0; i < m_core.lineCount(); ++i)
+    for (int i = qMax(0, from); i < m_core.lineCount(); ++i)
         if (!fn(i, m_core.line(i)))
             return;
 }

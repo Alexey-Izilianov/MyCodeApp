@@ -153,7 +153,7 @@ ApplicationWindow {
             editor2.setDiagnostics(lsp.diagnosticsFor(editor2.filePath))
     }
 
-    // Открывается в половине с фокусом; правая не меняет вкладку левой
+    // Открывается в половине с фокусом; правая не меняет вкладку левой. line < 0 — курсор не трогать
     function openAt(path, line, column, length) {
         if (activeEditor === editor2) {
             const left = manager.currentIndex
@@ -162,14 +162,20 @@ ApplicationWindow {
                 if (left >= 0 && left !== index)
                     manager.activate(left)
                 splitDocument = manager.documentAt(index)
-                editor2.goTo(line, column, length)
+                if (line >= 0)
+                    editor2.goTo(line, column, length)
             }
             editor2.forceActiveFocus()
             return
         }
-        if (manager.openPath(path) >= 0)
+        if (manager.openPath(path) >= 0 && line >= 0)
             editor.goTo(line, column, length)
         editor.forceActiveFocus()
+    }
+
+    function openSettings(page) {
+        settingsDialog.page = page
+        settingsDialog.open()
     }
 
     function requestClose(index) {
@@ -255,6 +261,38 @@ ApplicationWindow {
             diffView.step(direction)
         else if (activeEditor.document)
             activeEditor.gotoChange(direction)
+    }
+
+    Assistant {
+        id: assistant
+        documents: manager
+        onMessage: (text) => statusBar.flash(text)
+        onTaskStarted: sidebar.showAssistant(false) // фокус остаётся в редакторе
+    }
+    // Ошибка или предупреждение в строке курсора; без них — сообщение
+    function explainProblemAtCursor() {
+        const view = activeEditor
+        const line = view.cursorLine
+        const here = lsp.diagnosticsFor(view.filePath)
+            .filter(d => d.startLine <= line && line <= d.endLine)
+            .sort((a, b) => a.severity - b.severity)
+        if (here.length === 0) {
+            statusBar.flash(qsTr("В этой строке нет ошибок и предупреждений"))
+            return
+        }
+        assistant.explainProblem(view.filePath, here[0].startLine, here[0].message)
+    }
+    function insertAssistantCode(code) {
+        if (!hasDocument || activeEditor.readOnly || code === "")
+            return
+        activeEditor.replaceSelection(code)
+        activeEditor.forceActiveFocus()
+    }
+    // Комментарий — в тот файл, к которому он писался (открыть, если закрыт)
+    function insertAssistantComment(row) {
+        openAt(assistant.commentPath(row), -1, 0, 0)
+        if (assistant.insertComment(row, activeEditor))
+            activeEditor.forceActiveFocus()
     }
 
     LspManager {
@@ -397,6 +435,19 @@ ApplicationWindow {
                 Command { command: "git.refresh"; text: qsTr("Обновить состояние"); enabled: git.available; onTriggered: git.refresh() }
             }
             AppMenu {
+                title: qsTr("Ассистент")
+                Command { command: "assistant.panel"; text: qsTr("Панель ассистента"); defaultShortcut: "Ctrl+Shift+A"; onTriggered: sidebar.showAssistant(true) }
+                AppMenuSeparator {}
+                Command { command: "assistant.explain"; text: qsTr("Объяснить код"); defaultShortcut: "Ctrl+K, E"; enabled: window.hasDocument; onTriggered: assistant.explainCode(window.activeEditor) }
+                Command { command: "assistant.comment"; text: qsTr("Комментарий к выделенному"); defaultShortcut: "Ctrl+K, C"; enabled: window.hasDocument; onTriggered: assistant.documentCode(window.activeEditor) }
+                Command { command: "assistant.problem"; text: qsTr("Объяснить ошибку в строке"); defaultShortcut: "Ctrl+K, P"; enabled: window.hasDocument; onTriggered: window.explainProblemAtCursor() }
+                Command { command: "assistant.log"; text: qsTr("Пересказать журнал"); enabled: window.hasDocument; onTriggered: assistant.summarizeLog(window.activeEditor) }
+                AppMenuSeparator {}
+                Command { command: "assistant.stop"; text: qsTr("Остановить ответ"); enabled: assistant.busy; onTriggered: assistant.stop() }
+                Command { command: "assistant.new"; text: qsTr("Новый разговор"); onTriggered: assistant.clear() }
+                Command { command: "assistant.settings"; text: qsTr("Настройки ассистента…"); onTriggered: window.openSettings("assistant") }
+            }
+            AppMenu {
                 id: pluginMenu
                 title: qsTr("Плагины")
                 Instantiator {
@@ -412,7 +463,7 @@ ApplicationWindow {
                     onObjectRemoved: (index, object) => pluginMenu.removeAction(object)
                 }
                 AppMenuSeparator {}
-                Command { command: "app.plugins"; text: qsTr("Управление плагинами…"); onTriggered: { settingsDialog.page = "plugins"; settingsDialog.open() } }
+                Command { command: "app.plugins"; text: qsTr("Управление плагинами…"); onTriggered: window.openSettings("plugins") }
             }
             AppMenu {
                 title: qsTr("Вид")
@@ -461,7 +512,7 @@ ApplicationWindow {
             }
             AppMenu {
                 title: qsTr("Справка")
-                Command { command: "help.shortcuts"; text: qsTr("Горячие клавиши…"); onTriggered: { settingsDialog.page = "keys"; settingsDialog.open() } }
+                Command { command: "help.shortcuts"; text: qsTr("Горячие клавиши…"); onTriggered: window.openSettings("keys") }
                 Command { command: "help.dataFolder"; text: qsTr("Открыть папку данных"); onTriggered: Qt.openUrlExternally("file:///" + AppInfo.dataDir) }
                 AppMenuSeparator {}
                 Command { command: "help.about"; text: qsTr("О программе"); onTriggered: aboutDialog.open() }
@@ -479,7 +530,7 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.bottom: statusBar.top
-        onPluginsRequested: { settingsDialog.page = "plugins"; settingsDialog.open() }
+        onPluginsRequested: window.openSettings("plugins")
         onSettingsRequested: settingsDialog.open()
     }
 
@@ -488,6 +539,7 @@ ApplicationWindow {
         workspace: workspace
         editor: window.activeEditor
         git: git
+        assistant: assistant
         anchors.top: parent.top
         anchors.left: activityBar.right
         anchors.bottom: statusBar.top
@@ -496,6 +548,9 @@ ApplicationWindow {
         onOpenHistory: historyView.open()
         onOpenMatch: (path, line, column, length) => window.openAt(path, line, column, length)
         onOpenFolderRequested: folderDialog.open()
+        onInsertCode: (code) => window.insertAssistantCode(code)
+        onInsertComment: (row) => window.insertAssistantComment(row)
+        onOpenAssistantSettings: window.openSettings("assistant")
         onLeave: window.activeEditor.forceActiveFocus()
     }
 
@@ -780,6 +835,7 @@ ApplicationWindow {
         anchors.right: window.split ? splitArea.right : editorArea.right
         anchors.bottom: statusBar.top
         onOpenAt: (path, line, column) => window.openAt(path, line, column, 0)
+        onExplainProblem: (path, line, message) => assistant.explainProblem(path, line, message)
     }
 
     IslandCorners { target: sidebar }
@@ -895,6 +951,7 @@ ApplicationWindow {
     SettingsDialog {
         id: settingsDialog
         plugins: plugins
+        assistant: assistant
         onOpenFile: (path) => window.openAt(path, 0, 0, 0)
     }
 

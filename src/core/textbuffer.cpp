@@ -318,6 +318,12 @@ QVector<TextBuffer::Edit> TextBuffer::takeEdits(bool *overflow)
     return std::exchange(m_edits, {});
 }
 
+bool TextBuffer::looksBinary(const QByteArray &data)
+{
+    const bool utf16 = data.startsWith("\xFF\xFE") || data.startsWith("\xFE\xFF");
+    return !utf16 && data.left(8192).contains('\0');
+}
+
 Encoding TextBuffer::detectEncoding(const QByteArray &data)
 {
     // BOM сравниваем с явной длиной: startsWith(const char*) усекает по NUL,

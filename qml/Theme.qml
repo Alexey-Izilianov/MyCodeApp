@@ -40,7 +40,9 @@ QtObject {
         }
     }
 
-    readonly property string fontFamily: "Segoe UI"
+    // На Linux — шрифт системной темы (Fly: PT Astra Sans, на 1.6 — Inter/Noto Sans)
+    readonly property string fontFamily: Qt.platform.os === "windows" ? "Segoe UI" : Qt.application.font.family
+    readonly property string monoFamily: Qt.platform.os === "windows" ? "Cascadia Mono" : "DejaVu Sans Mono"
     readonly property int fontSize: 13
     readonly property int smallFontSize: 12
 

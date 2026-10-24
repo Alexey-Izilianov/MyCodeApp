@@ -89,7 +89,8 @@ EditorView::EditorView(QQuickItem *parent)
     setAcceptHoverEvents(true);
     setActiveFocusOnTab(true);
 
-    m_font.setFamilies({QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas")});
+    m_font.setFamilies({QStringLiteral("Cascadia Mono"), QStringLiteral("Consolas"), // Windows
+                        QStringLiteral("DejaVu Sans Mono"), QStringLiteral("Liberation Mono")}); // Astra
     m_font.setStyleHint(QFont::Monospace);
     m_font.setPixelSize(14);
     const QFontMetricsF fm(m_font);
@@ -307,6 +308,16 @@ void EditorView::setText(const QString &text)
 QString EditorView::selectedText() const
 {
     return m_document ? buffer().text(primary().start(), primary().end()) : QString();
+}
+
+bool EditorView::selectedLines(int *from, int *to) const
+{
+    const Caret &p = primary();
+    if (!p.hasSelection())
+        return false;
+    *from = p.start().line;
+    *to = lastSelectedLine(p);
+    return true;
 }
 
 void EditorView::replaceSelection(const QString &text)
@@ -632,6 +643,14 @@ QString EditorView::lineEnding() const
 
 QString EditorView::language() const
 {
+    if (!m_document)
+        return {};
+    const QString name = languageOf(filePath());
+    return name.isEmpty() ? tr("Текст") : name;
+}
+
+QString EditorView::languageOf(const QString &path)
+{
     static const QHash<QString, QString> names = {
         {"c", "C"},       {"h", "C++"},      {"cc", "C++"},     {"cpp", "C++"},
         {"cxx", "C++"},   {"hh", "C++"},     {"hpp", "C++"},    {"hxx", "C++"},
@@ -639,12 +658,10 @@ QString EditorView::language() const
         {"json", "JSON"}, {"jsonc", "JSON"}, {"md", "Markdown"}, {"markdown", "Markdown"},
         {"qml", "QML"},   {"cmake", "CMake"},
     };
-    if (!m_document)
-        return {};
-    const QFileInfo info(filePath());
+    const QFileInfo info(path);
     if (info.fileName().compare(QLatin1String("CMakeLists.txt"), Qt::CaseInsensitive) == 0)
         return QStringLiteral("CMake");
-    return names.value(info.suffix().toLower(), tr("Текст"));
+    return names.value(info.suffix().toLower());
 }
 
 qreal EditorView::contentHeight() const
@@ -1297,13 +1314,9 @@ void EditorView::indentLines(bool outdent)
     if (!m_document || readOnly())
         return;
     QVector<int> lines;
-    for (const Caret &c : std::as_const(m_carets)) {
-        int last = c.end().line;
-        if (last > c.start().line && c.end().column == 0)
-            --last; // строка, на начале которой кончается выделение, не входит
-        for (int l = c.start().line; l <= last; ++l)
+    for (const Caret &c : std::as_const(m_carets))
+        for (int l = c.start().line, last = lastSelectedLine(c); l <= last; ++l)
             lines.append(l);
-    }
     std::sort(lines.begin(), lines.end());
     lines.erase(std::unique(lines.begin(), lines.end()), lines.end());
 
@@ -2338,6 +2351,9 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         m_foldLayer = new QSGNode;
         m_textLayer = new QSGNode;
         m_caretLayer = new QSGNode;
+        // Без своего клипа программный рендер (--software) рисовал номера у края окна
+        m_gutterClip = new QSGClipNode;
+        m_gutterClip->setIsRectangular(true);
         m_gutterTransform = new QSGTransformNode;
         m_gutterNode = window()->createTextNode();
         m_gutterNode->setRenderType(QSGTextNode::NativeRendering);
@@ -2363,7 +2379,8 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
             m_textTransform->appendChildNode(m_diagnosticNodes[i]);
         }
         m_textTransform->appendChildNode(m_caretLayer);
-        m_root->appendChildNode(m_gutterTransform);
+        m_root->appendChildNode(m_gutterClip);
+        m_gutterClip->appendChildNode(m_gutterTransform);
         m_gutterTransform->appendChildNode(m_gutterNode);
         m_gutterTransform->appendChildNode(m_gutterCurrentNode);
         m_gutterTransform->appendChildNode(m_foldMarkers);
@@ -2451,6 +2468,7 @@ QSGNode *EditorView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     m_gutterTransform->setMatrix(gutterMatrix);
     // Клип чуть левее текста: каретка в колонке 0 не должна обрезаться
     m_textClip->setClipRect(QRectF(textLeft() - 4, 0, textWidth() + 4, height()));
+    m_gutterClip->setClipRect(QRectF(0, 0, m_gutterWidth, height()));
 
     QVector<QPair<QRectF, QColor>> currentLines;
     for (int line : std::as_const(caretLines))

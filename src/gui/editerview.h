@@ -48,6 +48,7 @@ class EditorView : public QQuickItem {
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(qreal lineHeight READ lineHeight CONSTANT)
     Q_PROPERTY(bool readOnly READ readOnly NOTIFY documentChanged)
+    Q_PROPERTY(bool hasSelection READ hasSelection NOTIFY cursorChanged) // у основного курсора
     Q_PROPERTY(bool snippetActive READ snippetActive NOTIFY snippetChanged)
     Q_PROPERTY(bool wordWrap READ wordWrap WRITE setWordWrap NOTIFY wordWrapChanged)
     // Справа место под миникарту: текст и перенос его не занимают
@@ -58,11 +59,13 @@ public:
     ~EditorView() override;
 
     QObject *document() const { return m_document; }
+    core::Document *textDocument() const { return m_document; }
     void setDocument(QObject *doc);
     QString filePath() const;
     QString encoding() const;
     QString lineEnding() const;
     QString language() const;
+    static QString languageOf(const QString &path); // «C++», «Python»…; неизвестный — пусто
     qreal scrollY() const { return m_scrollY; }
     void setScrollY(qreal y);
     qreal contentHeight() const;
@@ -74,6 +77,9 @@ public:
     qreal lineHeight() const { return m_lineHeight; }
     const QFont &textFont() const { return m_font; }
     bool readOnly() const { return m_document && m_document->isReadOnly(); }
+    bool hasSelection() const { return primary().hasSelection(); }
+    // Строки выделения основного курсора [from, to]; false — выделения нет
+    bool selectedLines(int *from, int *to) const;
 
     // Перенос длинных строк по ширине окна. Не действует на файлы длиннее kMaxWrapLines
     // строк и на строки длиннее kLongLine символов — у них остаётся прокрутка вбок
@@ -223,6 +229,9 @@ private:
 
     const core::TextBuffer &buffer() const { return m_document->buffer(); }
     const Caret &primary() const { return m_carets.at(m_primary); }
+    // Последняя строка выделения: та, на начале которой оно кончается, не входит
+    static int lastSelectedLine(const Caret &c)
+    { return c.end().line > c.start().line && c.end().column == 0 ? c.end().line - 1 : c.end().line; }
     bool anySelection() const;
 
     // Курсоры
@@ -411,6 +420,7 @@ private:
     QSGNode *m_changeLayer = nullptr; // полоски изменений в gutter
     QSGClipNode *m_textClip = nullptr;
     QSGTransformNode *m_textTransform = nullptr;
+    QSGClipNode *m_gutterClip = nullptr;
     QSGTransformNode *m_gutterTransform = nullptr;
     QSGNode *m_selectionLayer = nullptr;
     QSGNode *m_matchLayer = nullptr;

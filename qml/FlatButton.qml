@@ -10,6 +10,7 @@ Button {
     leftPadding: 14
     rightPadding: 14
     hoverEnabled: true
+    opacity: enabled ? 1 : 0.45
 
     contentItem: Label {
         text: button.text

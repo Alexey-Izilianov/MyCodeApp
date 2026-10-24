@@ -3,11 +3,12 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import MyCodeApp
 
-// Настройки: тема, горячие клавиши, плагины
+// Настройки: тема, горячие клавиши, плагины, ассистент
 Popup {
     id: dialog
     property string page: "appearance"
     property var plugins: null // PluginManager
+    property Assistant assistant: null
     signal openFile(string path)
 
     parent: Overlay.overlay
@@ -17,7 +18,12 @@ Popup {
     modal: true
     padding: 0
     closePolicy: capture.active ? Popup.NoAutoClose : Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    onOpened: commandList.refresh()
+    onOpened: {
+        commandList.refresh()
+        if (page === "assistant")
+            assistantPage.activate()
+    }
+    onPageChanged: if (opened && page === "assistant") assistantPage.activate()
 
     Overlay.modal: Rectangle { color: "#80000000" }
     background: Rectangle { color: Theme.chrome; border.color: Theme.border; radius: 8 }
@@ -31,7 +37,8 @@ Popup {
         Repeater {
             model: [{ id: "appearance", title: qsTr("Внешний вид") },
                     { id: "keys", title: qsTr("Горячие клавиши") },
-                    { id: "plugins", title: qsTr("Плагины") }]
+                    { id: "plugins", title: qsTr("Плагины") },
+                    { id: "assistant", title: qsTr("Ассистент") }]
             AbstractButton {
                 id: pageButton
                 required property var modelData
@@ -65,7 +72,7 @@ Popup {
         x: pages.x + pages.width + 9
         width: parent.width - x
         height: parent.height
-        currentIndex: ["appearance", "keys", "plugins"].indexOf(dialog.page)
+        currentIndex: ["appearance", "keys", "plugins", "assistant"].indexOf(dialog.page)
 
         // ── Внешний вид
         Item {
@@ -337,6 +344,12 @@ Popup {
         // ── Плагины
         PluginsPage {
             plugins: dialog.plugins
+        }
+
+        // ── Ассистент
+        AssistantSettings {
+            id: assistantPage
+            assistant: dialog.assistant
         }
     }
 }

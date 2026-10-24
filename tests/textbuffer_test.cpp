@@ -236,6 +236,13 @@ void TextBufferTest::mappedMatchesLoaded()
         return true;
     });
     QCOMPARE(visited, loaded.lineCount());
+    // С середины, между контрольными точками (каждая 16-я строка)
+    visited = 0;
+    mapped.snapshot().forEachLine([&](int line, const QString &text) {
+        visited += line >= 19 && text == loaded.lineAt(line);
+        return true;
+    }, 19);
+    QCOMPARE(visited, loaded.lineCount() - 19);
     QVERIFY(!mapped.save(path));
 }
 

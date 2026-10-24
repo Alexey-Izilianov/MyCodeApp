@@ -7,6 +7,7 @@ import MyCodeApp
 Item {
     id: panel
     required property GitService git
+    required property Assistant assistant
     required property string rootPath
     signal openDiff(string path, bool staged)
     signal openHistory()
@@ -19,6 +20,21 @@ Item {
     Connections {
         target: panel.git
         function onCommitted() { message.text = "" }
+        function onCommitDiffReady(diff) { panel.assistant.suggestCommitMessage(diff) }
+    }
+    // Сообщение от ассистента пишется прямо в поле по мере ответа
+    Connections {
+        target: panel.assistant
+        function onCommitDraftChanged() {
+            message.text = panel.assistant.commitDraft
+            message.cursorPosition = message.length
+        }
+    }
+    function suggestMessage() {
+        if (panel.assistant.commitBusy)
+            panel.assistant.stopCommitMessage()
+        else
+            panel.git.requestCommitDiff(panel.assistant.diffBudget())
     }
 
     // Плоский список: заголовок раздела, его файлы, следующий раздел
@@ -86,7 +102,8 @@ Item {
                 anchors.fill: parent
                 TextArea {
                     id: message
-                    placeholderText: qsTr("Сообщение коммита (Ctrl+Enter)")
+                    placeholderText: panel.assistant.commitBusy ? qsTr("Ассистент читает изменения…")
+                                                                : qsTr("Сообщение коммита (Ctrl+Enter)")
                     placeholderTextColor: Theme.faint
                     color: Theme.text
                     selectionColor: Theme.selection
@@ -106,14 +123,29 @@ Item {
             }
         }
 
-        FlatButton {
+        Item {
             x: 8
             width: parent.width - 16
-            primary: panel.git.stagedChanges.length > 0
-            enabled: !panel.git.busy
-            text: panel.git.stagedChanges.length > 0
-                  ? qsTr("Коммит (%1)").arg(panel.git.stagedChanges.length) : qsTr("Коммит")
-            onClicked: panel.commit()
+            height: commitButton.implicitHeight
+            FlatButton {
+                id: commitButton
+                width: parent.width - (suggest.visible ? suggest.width + 6 : 0)
+                primary: panel.git.stagedChanges.length > 0
+                enabled: !panel.git.busy
+                text: panel.git.stagedChanges.length > 0
+                      ? qsTr("Коммит (%1)").arg(panel.git.stagedChanges.length) : qsTr("Коммит")
+                onClicked: panel.commit()
+            }
+            FlatButton {
+                id: suggest
+                anchors.right: parent.right
+                visible: panel.git.changes.length + panel.git.stagedChanges.length > 0
+                text: panel.assistant.commitBusy ? qsTr("Стоп") : qsTr("Предложить")
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Предложить сообщение по изменениям (ассистент)")
+                ToolTip.delay: 500
+                onClicked: panel.suggestMessage()
+            }
         }
     }
 

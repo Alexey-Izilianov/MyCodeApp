@@ -1,5 +1,6 @@
 #include "documentmanager.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <spdlog/spdlog.h>
 
@@ -101,6 +102,25 @@ QVariantList DocumentManager::tabs() const
         list.append(tab);
     }
     return list;
+}
+
+QString DocumentManager::pathKey(const QString &path)
+{
+    const QString clean = QDir::cleanPath(path);
+#ifdef Q_OS_WIN
+    return clean.toLower();
+#else
+    return clean;
+#endif
+}
+
+Document *DocumentManager::find(const QString &path) const
+{
+    const QString wanted = pathKey(path);
+    for (Document *doc : m_docs)
+        if (pathKey(doc->filePath()) == wanted)
+            return doc;
+    return nullptr;
 }
 
 int DocumentManager::open(const QUrl &url)

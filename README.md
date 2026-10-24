@@ -106,7 +106,7 @@ Release, MinGW, Windows 11:
 ```bash
 cmake -G Ninja -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=C:/Qt/6.11.2/mingw_64
 cmake --build build/Release
-build/Release/appMyCodeApp.exe [--profile имя] [файл|папка]...
+build/Release/appMyCodeApp.exe [--profile имя] [--software] [файл|папка]...
 ```
 
 Портативный архив: `./tools/package.ps1` (нужен `windeployqt` в PATH) →

@@ -3,19 +3,23 @@ import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import MyCodeApp
 
-// Левая панель: проводник, поиск по проекту и Git (переключаются в ActivityBar);
+// Левая панель: проводник, поиск по проекту, Git и ассистент (переключаются в ActivityBar);
 // ширина меняется перетаскиванием края
 Rectangle {
     id: sidebar
     required property Workspace workspace
     required property EditorView editor
     required property GitService git
-    property string mode: "files" // "files" | "search" | "git"
+    required property Assistant assistant
+    property string mode: "files" // "files" | "search" | "git" | "assistant"
     signal openFile(string path)
     signal openDiff(string path, bool staged)
     signal openHistory()
     signal openMatch(string path, int line, int column, int length)
     signal openFolderRequested()
+    signal insertCode(string code)
+    signal insertComment(int row)
+    signal openAssistantSettings()
     signal leave()
 
     function focusPanel() {
@@ -24,14 +28,26 @@ Rectangle {
             fileTree.focusTree()
         else if (mode === "search")
             searchPanel.focusInput("")
-        else
+        else if (mode === "git")
             gitPanel.focusMessage()
+        else
+            showAssistant(true)
     }
 
     function showSearch(text) {
         mode = "search"
         visible = true
         searchPanel.focusInput(text)
+    }
+    // Разговору нужна ширина: узкую панель расширяем
+    function showAssistant(focus) {
+        mode = "assistant"
+        visible = true
+        if (width < 340)
+            width = 340
+        assistantPanel.activate()
+        if (focus)
+            assistantPanel.focusInput()
     }
     function showGit() {
         mode = "git"
@@ -48,6 +64,7 @@ Rectangle {
         height: 34
         verticalAlignment: Text.AlignVCenter
         text: sidebar.mode === "files" ? qsTr("Проводник") : sidebar.mode === "search" ? qsTr("Поиск")
+              : sidebar.mode === "assistant" ? qsTr("Ассистент")
               : sidebar.git.available ? sidebar.git.kind : qsTr("Контроль версий")
         color: Theme.muted
         font.pixelSize: Theme.smallFontSize - 1
@@ -60,7 +77,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        currentIndex: ["files", "search", "git"].indexOf(sidebar.mode)
+        currentIndex: ["files", "search", "git", "assistant"].indexOf(sidebar.mode)
 
         FileTree {
             id: fileTree
@@ -80,10 +97,20 @@ Rectangle {
         GitPanel {
             id: gitPanel
             git: sidebar.git
+            assistant: sidebar.assistant
             rootPath: sidebar.workspace.rootPath
             onOpenDiff: (path, staged) => sidebar.openDiff(path, staged)
             onOpenHistory: sidebar.openHistory()
             onOpenFile: (path) => sidebar.openFile(path)
+            onLeave: sidebar.leave()
+        }
+        AssistantPanel {
+            id: assistantPanel
+            assistant: sidebar.assistant
+            editor: sidebar.editor
+            onInsertCode: (code) => sidebar.insertCode(code)
+            onInsertComment: (row) => sidebar.insertComment(row)
+            onOpenSettings: sidebar.openAssistantSettings()
             onLeave: sidebar.leave()
         }
     }

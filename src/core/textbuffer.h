@@ -75,6 +75,8 @@ public:
     PieceTable::Snapshot snapshot() const { return m_pt.snapshot(); }
 
     static Position clampPosition(const Position &pos, const TextBuffer &buf);
+    // Нулевой байт в начале и нет метки UTF-16 — не текст
+    static bool looksBinary(const QByteArray &data);
 
 private:
     static Encoding detectEncoding(const QByteArray &data);

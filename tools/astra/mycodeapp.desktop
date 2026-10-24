@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=MyCodeApp
+GenericName=Code Editor
+GenericName[ru]=Редактор кода
+Comment=Source code editor
+Comment[ru]=Редактор исходного кода
+Exec=/opt/mycodeapp/bin/appMyCodeApp %F
+Icon=mycodeapp
+Terminal=false
+Categories=Development;TextEditor;
+MimeType=text/plain;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/x-python;text/x-cmake;text/markdown;text/x-log;application/json;application/xml;text/x-qml;inode/directory;
+StartupWMClass=appMyCodeApp

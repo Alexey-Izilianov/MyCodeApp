@@ -95,10 +95,12 @@ QString MappedText::text(int offset, int count) const
     return out.mid(skip, count);
 }
 
-void MappedText::forEachLine(const std::function<bool(int, const QString &)> &fn) const
+void MappedText::forEachLine(const std::function<bool(int, const QString &)> &fn, int from) const
 {
-    qint64 byte = m_begin;
-    for (int line = 0; line <= m_newlines.size(); ++line) {
+    if (from < 0 || from > m_newlines.size())
+        return;
+    qint64 byte = lineByteStart(from);
+    for (int line = from; line <= m_newlines.size(); ++line) {
         const qint64 end = lineByteEnd(byte);
         if (!fn(line, decode(byte, end)))
             return;

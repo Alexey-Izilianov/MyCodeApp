@@ -23,16 +23,6 @@ constexpr int kMaxChars = 4 * 1024 * 1024; // больше — серверу н
 constexpr int kMaxCompletionItems = 200;
 constexpr int kChangeDelayMs = 300;
 
-QString pathKey(const QString &path)
-{
-    const QString clean = QDir::cleanPath(path);
-#ifdef Q_OS_WIN
-    return clean.toLower();
-#else
-    return clean;
-#endif
-}
-
 QString pathFromUri(const QString &uri)
 {
     QString path = QUrl(uri).toLocalFile();
@@ -351,7 +341,7 @@ void LspManager::track(Document *doc)
         const Tracked closed = m_tracked.take(doc);
         closed.client->notify(QStringLiteral("textDocument/didClose"),
                               QJsonObject{{QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), closed.uri}}}});
-        if (m_diagnostics.remove(pathKey(closed.path))) {
+        if (m_diagnostics.remove(DocumentManager::pathKey(closed.path))) {
             rebuildProblems();
             emit diagnosticsChanged(closed.path);
         }
@@ -388,11 +378,7 @@ void LspManager::flushAll()
 
 Document *LspManager::findDocument(const QString &path) const
 {
-    if (m_documents)
-        for (Document *doc : m_documents->documents())
-            if (pathKey(doc->filePath()) == pathKey(path))
-                return doc;
-    return nullptr;
+    return m_documents ? m_documents->find(path) : nullptr;
 }
 
 LspManager::Tracked *LspManager::prepare(EditorView *editor)
@@ -428,9 +414,9 @@ void LspManager::setDiagnostics(const QString &uri, const QJsonArray &items)
                            d.value(QStringLiteral("severity")).toInt(1), d.value(QStringLiteral("message")).toString()});
     }
     if (file.items.isEmpty())
-        m_diagnostics.remove(pathKey(path));
+        m_diagnostics.remove(DocumentManager::pathKey(path));
     else
-        m_diagnostics.insert(pathKey(path), file);
+        m_diagnostics.insert(DocumentManager::pathKey(path), file);
     rebuildProblems();
     emit diagnosticsChanged(path);
 }
@@ -438,7 +424,7 @@ void LspManager::setDiagnostics(const QString &uri, const QJsonArray &items)
 QVariantList LspManager::diagnosticsFor(const QString &path) const
 {
     QVariantList out;
-    for (const Diagnostic &d : m_diagnostics.value(pathKey(path)).items)
+    for (const Diagnostic &d : m_diagnostics.value(DocumentManager::pathKey(path)).items)
         out.append(QVariantMap{{QStringLiteral("startLine"), d.startLine}, {QStringLiteral("startColumn"), d.startColumn},
                                {QStringLiteral("endLine"), d.endLine}, {QStringLiteral("endColumn"), d.endColumn},
                                {QStringLiteral("severity"), d.severity}, {QStringLiteral("message"), d.message}});
@@ -613,7 +599,7 @@ void LspManager::hover(EditorView *editor, int line, int column)
     auto *doc = editor ? qobject_cast<Document *>(editor->document()) : nullptr;
     if (!doc)
         return;
-    for (const Diagnostic &d : m_diagnostics.value(pathKey(doc->filePath())).items) {
+    for (const Diagnostic &d : m_diagnostics.value(DocumentManager::pathKey(doc->filePath())).items) {
         const bool after = line > d.startLine || (line == d.startLine && column >= d.startColumn);
         const bool before = line < d.endLine || (line == d.endLine && column <= qMax(d.endColumn, d.startColumn + 1));
         if (after && before)

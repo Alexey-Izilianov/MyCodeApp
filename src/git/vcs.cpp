@@ -26,6 +26,45 @@ bool init(Kind kind, const QString &path, QString *error)
     return kind == Kind::Git ? git::Repository::init(path, error) : hg::Repository::init(path, error);
 }
 
+QString unifiedDiff(const QString &path, const QString &oldText, const QString &newText, int context)
+{
+    const QVector<Hunk> hunks = diffLines(oldText.toUtf8(), newText.toUtf8());
+    if (hunks.isEmpty())
+        return {};
+    const QStringList before = oldText.isEmpty() ? QStringList() : oldText.split(u'\n');
+    const QStringList after = newText.isEmpty() ? QStringList() : newText.split(u'\n');
+    QString out = QStringLiteral("--- a/%1\n+++ b/%1\n").arg(path);
+    for (qsizetype first = 0; first < hunks.size();) {
+        // Участки, между которыми мало общих строк, — одним блоком
+        qsizetype last = first;
+        while (last + 1 < hunks.size()
+               && hunks.at(last + 1).oldStart - (hunks.at(last).oldStart + hunks.at(last).oldCount) <= 2 * context)
+            ++last;
+        const Hunk &a = hunks.at(first), &b = hunks.at(last);
+        const int oldFrom = qMax(0, a.oldStart - context);
+        const int oldTo = qMin(int(before.size()), b.oldStart + b.oldCount + context);
+        const int newFrom = a.newStart - (a.oldStart - oldFrom);
+        const int newTo = b.newStart + b.newCount + (oldTo - b.oldStart - b.oldCount);
+        out += QStringLiteral("@@ -%1,%2 +%3,%4 @@\n").arg(oldFrom + 1).arg(oldTo - oldFrom)
+                   .arg(newFrom + 1).arg(newTo - newFrom);
+        int line = oldFrom;
+        for (qsizetype i = first; i <= last; ++i) {
+            const Hunk &h = hunks.at(i);
+            for (; line < h.oldStart; ++line)
+                out += u' ' + before.value(line) + u'\n';
+            for (int k = 0; k < h.oldCount; ++k)
+                out += u'-' + before.value(h.oldStart + k) + u'\n';
+            for (int k = 0; k < h.newCount; ++k)
+                out += u'+' + after.value(h.newStart + k) + u'\n';
+            line = h.oldStart + h.oldCount;
+        }
+        for (; line < oldTo; ++line)
+            out += u' ' + before.value(line) + u'\n';
+        first = last + 1;
+    }
+    return out;
+}
+
 QVector<GraphRow> layoutGraph(const QVector<Commit> &commits)
 {
     struct Lane {

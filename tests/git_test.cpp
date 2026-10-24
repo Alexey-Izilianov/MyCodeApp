@@ -143,6 +143,18 @@ private slots:
         QCOMPARE(repo->headBlob(QStringLiteral("a.txt")).value_or(""), QByteArray("one\n"));
     }
 
+    void unifiedDiffBlocks()
+    {
+        const QString diff = vcs::unifiedDiff(QStringLiteral("f.txt"), QStringLiteral("a\nb\nc\nd\ne\nf\ng"),
+                                              QStringLiteral("a\nB\nc\nd\ne\nF\ng"), 1);
+        QCOMPARE(diff, QStringLiteral("--- a/f.txt\n+++ b/f.txt\n"
+                                      "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
+                                      "@@ -5,3 +5,3 @@\n e\n-f\n+F\n g\n"));
+        QCOMPARE(vcs::unifiedDiff(QStringLiteral("new.txt"), QString(), QStringLiteral("x")),
+                 QStringLiteral("--- a/new.txt\n+++ b/new.txt\n@@ -1,0 +1,1 @@\n+x\n"));
+        QVERIFY(vcs::unifiedDiff(QStringLiteral("same"), QStringLiteral("q"), QStringLiteral("q")).isEmpty());
+    }
+
     void graphLinear()
     {
         const QVector<vcs::Commit> commits{{.id = "c", .parents = {"b"}}, {.id = "b", .parents = {"a"}}, {.id = "a"}};

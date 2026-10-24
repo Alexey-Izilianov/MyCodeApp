@@ -26,8 +26,8 @@ public:
     bool crlf() const { return m_crlf; }
 
     QString text(int offset, int count) const;
-    // Последовательный проход без поиска начала каждой строки; false из fn — стоп
-    void forEachLine(const std::function<bool(int, const QString &)> &fn) const;
+    // Последовательный проход с from без поиска начала каждой строки; false из fn — стоп
+    void forEachLine(const std::function<bool(int, const QString &)> &fn, int from = 0) const;
 
 private:
     MappedText() = default;

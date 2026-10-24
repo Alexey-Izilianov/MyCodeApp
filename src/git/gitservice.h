@@ -64,6 +64,9 @@ public:
     Q_INVOKABLE void unstageAll();
     Q_INVOKABLE void discard(const QStringList &paths);
     Q_INVOKABLE void commit(const QString &message);
+    // Изменения будущего коммита (отмеченные, а без них — все) в формате diff не длиннее
+    // budget символов — для сообщения от ассистента; ответ — commitDiffReady
+    Q_INVOKABLE void requestCommitDiff(int budget);
     Q_INVOKABLE void checkout(const QString &branch);
     Q_INVOKABLE void createBranch(const QString &name);
     Q_INVOKABLE void initRepository();
@@ -93,6 +96,7 @@ signals:
     void committed();
     void diffReady(const QString &title, int changeCount);
     void commitFilesReady(const QString &id, const QVariantList &files); // как changes
+    void commitDiffReady(const QString &diff);
 
 private:
     struct Snapshot; // результат обновления статуса

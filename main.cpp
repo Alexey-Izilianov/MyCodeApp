@@ -1,6 +1,8 @@
 #include <QGuiApplication>
 #include <QFileInfo>
 #include <QIcon>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
 #include <QQuickWindow>
 #include <QTimer>
 #include <string>
@@ -43,6 +45,25 @@ static void openPaths(QObject *root, const QStringList &paths)
     }
 }
 
+// На Linux Qt Quick рисует через OpenGL; без него (ВМ без 3D-ускорения, нет драйвера)
+// окно не создаётся — тогда программная отрисовка: медленнее, но работает.
+// На Windows — Direct3D, там проверка не нужна. Заданный пользователем QSG_RHI_BACKEND не трогаем
+static void chooseRenderer(bool software)
+{
+#ifdef Q_OS_LINUX
+    if (!software && qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND")) {
+        QOffscreenSurface surface;
+        surface.create();
+        QOpenGLContext context;
+        software = !context.create() || !context.makeCurrent(&surface);
+    }
+#endif
+    if (software) {
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::Software);
+        spdlog::info("main: программная отрисовка");
+    }
+}
+
 static void bringToFront(QQuickWindow *window)
 {
     if (window->windowStates() & Qt::WindowMinimized)
@@ -58,7 +79,7 @@ int main(int argc, char *argv[])
     QGuiApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/icon/app-256.png")));
 
-    // appMyCodeApp.exe [--profile имя] [файл|папка]... — пути абсолютные: у запущенного
+    // appMyCodeApp.exe [--profile имя] [--software] [файл|папка]... — пути абсолютные: у запущенного
     // экземпляра своя рабочая папка
     QStringList paths = QCoreApplication::arguments().mid(1);
     QString profile;
@@ -66,6 +87,7 @@ int main(int argc, char *argv[])
         profile = paths.at(at + 1);
         paths.remove(at, 2);
     }
+    const bool software = paths.removeAll(QStringLiteral("--software")) > 0;
     for (QString &path : paths)
         path = QFileInfo(path).absoluteFilePath();
     initAppDataDir(profile);
@@ -83,6 +105,7 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(qtMessageHandler);
     spdlog::info("main: старт");
     Localization::applySavedLanguage();
+    chooseRenderer(software);
 
     QQmlApplicationEngine engine;
     QWK::registerTypes(&engine); // WindowAgent для своей строки заголовка

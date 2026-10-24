@@ -155,7 +155,7 @@ Popup {
                     width: Math.min(implicitWidth, list.width - kind.width - 16)
                     text: entry.modelData.label
                     color: Theme.text
-                    font.family: "Cascadia Mono"
+                    font.family: Theme.monoFamily
                     elide: Text.ElideRight
                 }
                 Label {
