@@ -13,6 +13,8 @@ APP=$STAGE/opt/mycodeapp
 
 [ -d "$STAGE" ] && sudo rm -rf "$STAGE" # прошлая сборка пакета принадлежит root
 step app-install cmake --install "$BUILD" --prefix "$APP"
+# libgit2 и прочие зависимости FetchContent ставят заголовки и статические библиотеки — в пакете не нужны
+rm -rf "$APP/include" "$APP/lib/cmake" "$APP/lib/pkgconfig" "$APP"/lib/*.a
 # Компилятор новее системного: его libstdc++ и libgcc едут с программой
 cp -L "$($CXX -print-file-name=libstdc++.so.6)" "$($CXX -print-file-name=libgcc_s.so.1)" "$APP/lib/"
 
@@ -30,16 +32,19 @@ declare -A renamed=(
     [libxcb-util0]="libxcb-util1 | libxcb-util0" [libxcb-util1]="libxcb-util1 | libxcb-util0"
     [libc6]="libc6 (>= 2.24)"
 )
+export LC_ALL=C # readelf и dpkg в русской локали пишут не «Shared library»
 needed=$(find "$APP" -type f -exec sh -c 'head -c4 "$1" | grep -q ELF' _ {} \; -print0 \
          | xargs -0 readelf -d 2>/dev/null | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | sort -u)
+libraries=$(/sbin/ldconfig -p) # один раз: awk с exit в конвейере обрывал ldconfig (SIGPIPE + pipefail)
 packages=()
 for lib in $needed; do
     [ -e "$APP/lib/$lib" ] && continue
-    path=$(/sbin/ldconfig -p | awk -v l="$lib" '$1==l && /x86-64/ {print $NF; exit}')
+    path=$(awk -v l="$lib" '$1==l && /x86-64/ {print $NF; exit}' <<< "$libraries")
     [ -n "$path" ] || { echo "!! в системе нет $lib"; exit 1; }
     owner=$(dpkg -S "$path" 2>/dev/null || dpkg -S "$(readlink -f "$path")")
     packages+=("${owner%%:*}")
 done
+[ ${#packages[@]} -gt 0 ] || { echo "!! не найдено ни одной системной зависимости — проверьте readelf"; exit 1; }
 depends=$(printf '%s\n' "${packages[@]}" | sort -u | while read -r p; do echo "${renamed[$p]:-$p}"; done | paste -sd, | sed 's/,/, /g')
 
 mkdir -p "$STAGE/DEBIAN"

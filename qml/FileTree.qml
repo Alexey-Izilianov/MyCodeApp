@@ -76,7 +76,9 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         clip: true
-        model: projectModel
+        // Без папки модели нет: иначе скрытое дерево обходит весь диск от «/»,
+        // и на Linux TreeView падал на устаревшем индексе при первом кадре
+        model: explorer.hasFolder ? projectModel : null
         rootIndex: projectModel.rootIndex
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: ScrollBar {}
