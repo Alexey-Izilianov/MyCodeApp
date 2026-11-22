@@ -16,7 +16,7 @@ qt_standard_project_setup(REQUIRES 6.10)
 include(FetchContent)
 FetchContent_Declare(spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.14.1)
+    GIT_TAG v1.17.0)
 FetchContent_MakeAvailable(spdlog)
 
 # Tree-sitter: runtime + грамматики C++/Python как статические
