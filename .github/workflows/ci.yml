@@ -62,8 +62,8 @@ jobs:
         working-directory: build
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run -a ctest --output-on-failure
-          elif ! ctest --output-on-failure; then
+            xvfb-run -a ctest --timeout 180 --output-on-failure;
+          elif ! xvfb-run -a ctest --timeout 180 --output-on-failure; then
             # стек упавших тестов для разбора (на macOS они падают без вывода)
             for t in $(ctest --rerun-failed -N | sed -n 's/.*Test *#[0-9]*: *//p'); do
               lldb --batch -o run -k bt -k quit -- ./test_$t || true
@@ -119,7 +119,7 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
           MYCODEAPP_NO_PERF: 1 # под санитайзерами код в разы медленнее — замеры скорости не проверяем
           ASAN_OPTIONS: detect_leaks=0 # утечки в драйверах GL/Qt не наши
-        run: xvfb-run -a ctest --output-on-failure
+        run: xvfb-run -a ctest --timeout 180 --output-on-failure;
 
   clang-tidy:
     name: clang-tidy
