@@ -10,6 +10,7 @@
 #include <QLibraryInfo>
 #include <QStandardPaths>
 #include <QUrl>
+#include <memory>
 #include <spdlog/spdlog.h>
 
 #include "lspclient.h"
@@ -685,11 +686,13 @@ void LspManager::rename(EditorView *editor, const QString &newName)
     QJsonObject params = positionParams(*tracked, editor->cursorLine(), editor->cursorColumn());
     params.insert(QStringLiteral("newName"), newName);
     QPointer<EditorView> view = editor;
+    QPointer<Document> source = qobject_cast<Document *>(editor->document());
+    const quint64 revision = source->revision();
     tracked->client->request(QStringLiteral("textDocument/rename"), params,
-        [this, view](const QJsonValue &result, const QJsonObject &error) {
+        [this, view, source, revision](const QJsonValue &result, const QJsonObject &error) {
             if (!error.isEmpty())
                 emit message(error.value(QStringLiteral("message")).toString());
-            else if (view)
+            else if (view && source && view->document() == source.data() && source->revision() == revision)
                 applyWorkspaceEdit(view, result.toObject());
         });
 }
@@ -703,12 +706,13 @@ void LspManager::format(EditorView *editor)
         {QStringLiteral("textDocument"), QJsonObject{{QStringLiteral("uri"), tracked->uri}}},
         {QStringLiteral("options"), QJsonObject{{QStringLiteral("tabSize"), 4}, {QStringLiteral("insertSpaces"), true}}}};
     QPointer<EditorView> view = editor;
-    QPointer<QObject> doc = editor->document();
+    QPointer<Document> doc = qobject_cast<Document *>(editor->document());
+    const quint64 revision = doc->revision();
     tracked->client->request(QStringLiteral("textDocument/formatting"), params,
-        [this, view, doc](const QJsonValue &result, const QJsonObject &error) {
+        [this, view, doc, revision](const QJsonValue &result, const QJsonObject &error) {
             if (!error.isEmpty())
                 emit message(error.value(QStringLiteral("message")).toString());
-            else if (view && view->document() == doc)
+            else if (view && doc && view->document() == doc.data() && doc->revision() == revision)
                 view->applyTextEdits(editsFromJson(result.toArray()));
         });
 }
@@ -716,42 +720,126 @@ void LspManager::format(EditorView *editor)
 void LspManager::applyWorkspaceEdit(EditorView *editor, const QJsonObject &edit)
 {
     QHash<QString, QJsonArray> byPath;
+    QHash<QString, int> versions;
     const QJsonObject changes = edit.value(QStringLiteral("changes")).toObject();
     for (auto it = changes.begin(); it != changes.end(); ++it)
         byPath[pathFromUri(it.key())] = it.value().toArray();
     for (const QJsonValue &change : edit.value(QStringLiteral("documentChanges")).toArray()) {
         const QJsonObject object = change.toObject();
-        const QString uri = object.value(QStringLiteral("textDocument")).toObject().value(QStringLiteral("uri")).toString();
-        if (!uri.isEmpty())
-            byPath[pathFromUri(uri)] = object.value(QStringLiteral("edits")).toArray();
+        const QJsonObject target = object.value(QStringLiteral("textDocument")).toObject();
+        const QString uri = target.value(QStringLiteral("uri")).toString();
+        if (uri.isEmpty()) {
+            emit message(tr("Правки проекта требуют неподдерживаемой файловой операции"));
+            return;
+        }
+        const QString path = pathFromUri(uri);
+        byPath[path] = object.value(QStringLiteral("edits")).toArray();
+        if (const QJsonValue version = target.value(QStringLiteral("version")); version.isDouble())
+            versions[path] = version.toInt();
     }
     if (byPath.isEmpty() || !m_documents)
         return;
 
-    // Неоткрытые файлы открываются вкладками (правки видны и отменяемы), потом
-    // возвращаемся на исходную вкладку
-    // Вкладку левой половины помним по номеру: editor может быть правой половиной
-    const int originalIndex = m_documents->currentIndex();
+    struct Target {
+        QPointer<Document> document;
+        QVariantList edits;
+        quint64 revision = 0;
+    };
+    struct Batch {
+        QList<Target> ready;
+        QHash<QString, QVariantList> pending;
+        bool failed = false;
+    };
+    auto batch = std::make_shared<Batch>();
+    const QPointer<DocumentManager> manager = m_documents;
+    const QPointer<QObject> original = manager->currentDocument();
+    const QPointer<EditorView> view = editor;
+    const QString root = m_root;
+    const auto apply = [this, batch, manager, original, view, root] {
+        if (!manager || manager != m_documents || !view || root != m_root)
+            return;
+        manager->activate(manager->indexOfDocument(original));
+        for (const Target &target : batch->ready) {
+            const auto &doc = target.document;
+            if (!doc || manager->indexOfDocument(doc) < 0 || doc->isReadOnly()
+                || doc->revision() != target.revision) {
+                batch->failed = true;
+                break;
+            }
+        }
+        if (batch->failed) {
+            emit message(tr("Правки проекта отменены: один из файлов изменился или недоступен"));
+            return;
+        }
+        int changed = 0;
+        for (const Target &target : batch->ready) {
+            Document *doc = target.document.data();
+            if (view->document() == doc) {
+                view->applyTextEdits(target.edits);
+            } else {
+                QVector<Document::Replacement> parts;
+                for (const QVariant &value : target.edits) {
+                    const QVariantMap e = value.toMap();
+                    parts.append({
+                        {e.value(QStringLiteral("startLine")).toInt(), e.value(QStringLiteral("startColumn")).toInt()},
+                        {e.value(QStringLiteral("endLine")).toInt(), e.value(QStringLiteral("endColumn")).toInt()},
+                        e.value(QStringLiteral("text")).toString()});
+                }
+                doc->replace(parts, Document::EditKind::Other, {});
+            }
+            if (doc->revision() != target.revision)
+                ++changed;
+        }
+        emit message(tr("Изменено файлов: %1").arg(changed));
+    };
+
+    QSet<QString> targets;
     for (auto it = byPath.cbegin(); it != byPath.cend(); ++it) {
-        Document *doc = findDocument(it.key());
+        const QString key = DocumentManager::pathKey(it.key());
+        if (it.key().isEmpty() || targets.contains(key)) {
+            batch->failed = true;
+            break;
+        }
+        targets.insert(key);
+        Document *doc = manager->find(it.key());
+        if (versions.contains(it.key())) {
+            const auto tracked = m_tracked.constFind(doc);
+            if (tracked == m_tracked.cend() || tracked->version != versions.value(it.key())
+                || tracked->changed) {
+                batch->failed = true;
+                break;
+            }
+        }
         if (!doc)
-            doc = qobject_cast<Document *>(m_documents->documentAt(m_documents->openPath(it.key())));
-        if (!doc || doc->isReadOnly())
-            continue;
-        if (editor->document() == doc) {
-            editor->applyTextEdits(editsFromJson(it.value()));
-            continue;
+            doc = qobject_cast<Document *>(manager->documentAt(manager->openPath(it.key())));
+        const QVariantList edits = editsFromJson(it.value());
+        if (doc) {
+            batch->ready.append({doc, edits, doc->revision()});
+        } else if (const QString pendingKey = manager->pendingOpenKey(it.key()); !pendingKey.isEmpty()) {
+            batch->pending.insert(pendingKey, edits);
+        } else {
+            batch->failed = true;
+            break;
         }
-        QVector<Document::Replacement> parts;
-        for (const QVariant &v : editsFromJson(it.value())) {
-            const QVariantMap e = v.toMap();
-            parts.append({{e.value(QStringLiteral("startLine")).toInt(), e.value(QStringLiteral("startColumn")).toInt()},
-                          {e.value(QStringLiteral("endLine")).toInt(), e.value(QStringLiteral("endColumn")).toInt()},
-                          e.value(QStringLiteral("text")).toString()});
-        }
-        doc->replace(parts, Document::EditKind::Other, {});
     }
-    if (originalIndex >= 0 && originalIndex != m_documents->currentIndex())
-        m_documents->activate(originalIndex);
-    emit message(tr("Изменено файлов: %1").arg(byPath.size()));
+    if (batch->failed || batch->pending.isEmpty()) {
+        apply();
+        return;
+    }
+    auto *request = new QObject(this);
+    connect(manager, &QObject::destroyed, request, &QObject::deleteLater);
+    connect(manager, &DocumentManager::asyncOpenFinished, request,
+            [batch, apply, request](const QString &key, QObject *object, int) {
+        if (!batch->pending.contains(key))
+            return;
+        const QVariantList edits = batch->pending.take(key);
+        if (auto *doc = qobject_cast<Document *>(object))
+            batch->ready.append({doc, edits, doc->revision()});
+        else
+            batch->failed = true;
+        if (batch->pending.isEmpty()) {
+            request->deleteLater();
+            apply();
+        }
+    });
 }

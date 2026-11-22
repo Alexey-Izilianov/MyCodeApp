@@ -21,6 +21,10 @@ private slots:
     void saveLoadRoundTrip();
     void documentDirty();
     void mappedMatchesLoaded();
+    void mappedEditLikeLoaded();
+    void mappedStreamSave();
+    void mappedStreamSaveLatin1Error();
+    void mappedRetarget();
 
 private:
     static QString writeTemp(const QByteArray &bytes, const QString &suffix);
@@ -244,6 +248,147 @@ void TextBufferTest::mappedMatchesLoaded()
     }, 19);
     QCOMPARE(visited, loaded.lineCount() - 19);
     QVERIFY(!mapped.save(path));
+}
+
+void TextBufferTest::mappedEditLikeLoaded()
+{
+    QTemporaryDir dir;
+    const QString path = dir.filePath("edit_source.txt");
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        for (int i = 0; i < 30; ++i)
+            file.write(("строка " + QByteArray::number(i) + " \xF0\x9F\x98\x80\r\n").constData());
+    }
+
+    TextBuffer mapped, loaded;
+    QVERIFY(mapped.loadMapped(path));
+    QVERIFY(loaded.load(path));
+    QVERIFY(mapped.isMapped());
+
+    // Одинаковые правки: вставка с переносом, замена в середине, удаление поперёк строк, конец
+    const auto edit = [](TextBuffer &b) {
+        b.insertText({0, 0}, QStringLiteral("первая\n"));
+        b.insertText({2, 0}, QStringLiteral("[середина] "));
+        b.removeText({3, 0}, {5, 0});
+        b.insertText({b.lineCount() - 1, 0}, QStringLiteral("хвост "));
+    };
+    edit(mapped);
+    edit(loaded);
+    QCOMPARE(mapped.length(), loaded.length());
+    QCOMPARE(mapped.lineCount(), loaded.lineCount());
+    for (int i = 0; i < loaded.lineCount(); ++i)
+        QCOMPARE(mapped.lineAt(i), loaded.lineAt(i));
+    QCOMPARE(mapped.textAt(0, mapped.length()), loaded.textAt(0, loaded.length()));
+    QCOMPARE(mapped.snapshot().toString(), loaded.snapshot().toString());
+
+    // Снимок сделан до правок — правки его не трогают
+    TextBuffer mapped2, loaded2;
+    QVERIFY(mapped2.loadMapped(path));
+    QVERIFY(loaded2.load(path));
+    const auto snapshot = mapped2.snapshot();
+    edit(mapped2);
+    QCOMPARE(snapshot.toString(), loaded2.textAt(0, loaded2.length()));
+}
+
+void TextBufferTest::mappedStreamSave()
+{
+    QTemporaryDir dir;
+    const QString path = dir.filePath("crlf_source.txt");
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("\xEF\xBB\xBF");
+        for (int i = 0; i < 25; ++i)
+            file.write("row " + QByteArray::number(i) + "\r\n");
+    }
+    TextBuffer b;
+    QVERIFY(b.loadMapped(path));
+    QVERIFY(b.mappedBaseHasBom());
+    b.insertText({0, 0}, QStringLiteral("голова\n"));
+
+    const QString out = dir.filePath("saved.txt");
+    QString error;
+    int sawProgress = -1;
+    QVERIFY2(core::streamSave(b.snapshot(), b.encoding(), b.lineEnding(), b.mappedBaseHasBom(),
+                              out,
+                              [&](int percent) { sawProgress = percent; return true; },
+                              &error),
+             qPrintable(error));
+    QVERIFY(sawProgress >= 0);
+
+    // Побайтово: BOM, CRLF, правка
+    QFile written(out);
+    QVERIFY(written.open(QIODevice::ReadOnly));
+    const QByteArray bytes = written.readAll();
+    QVERIFY(bytes.startsWith("\xEF\xBB\xBFголова\r\nrow 0\r\n"));
+    QVERIFY(bytes.endsWith("row 24\r\n"));
+
+    // Логический текст после перечитывания совпадает
+    TextBuffer check;
+    QVERIFY(check.load(out));
+    QCOMPARE(check.lineCount(), b.lineCount());
+    for (int i = 0; i < b.lineCount(); ++i)
+        QCOMPARE(check.lineAt(i), b.lineAt(i));
+
+    // Отмена: файл не остаётся на диске
+    QVERIFY(!core::streamSave(b.snapshot(), b.encoding(), b.lineEnding(), true,
+                              dir.filePath("cancelled.txt"),
+                              [](int) { return false; }, &error));
+    QVERIFY(!QFile::exists(dir.filePath("cancelled.txt")));
+}
+
+void TextBufferTest::mappedStreamSaveLatin1Error()
+{
+    QTemporaryDir dir;
+    const QString path = dir.filePath("latin.txt");
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("caf\xE9 latin\nbytes\n");
+    }
+
+    TextBuffer b;
+    QVERIFY(b.loadMapped(path)); // один старший байт не в 0xC0.. — Latin-1
+    QCOMPARE(b.encoding(), Encoding::Latin1);
+    b.insertText({1, 0}, QStringLiteral("Ω")); // символа в Latin-1 нет
+
+    QString error;
+    QVERIFY(!core::streamSave(b.snapshot(), b.encoding(), b.lineEnding(), false,
+                              dir.filePath("latin_out.txt"), {}, &error));
+    QVERIFY(!error.isEmpty());
+    QVERIFY(!QFile::exists(dir.filePath("latin_out.txt")));
+}
+
+void TextBufferTest::mappedRetarget()
+{
+    QTemporaryDir dir;
+    const QString path = dir.filePath("retarget_source.txt");
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        for (int i = 0; i < 25; ++i)
+            file.write("line " + QByteArray::number(i) + "\n");
+    }
+    TextBuffer b;
+    QVERIFY(b.loadMapped(path));
+    b.insertText({0, 0}, QStringLiteral("start\n"));
+    b.insertText({10, 3}, QStringLiteral(" mid"));
+    const QString snapshotText = b.snapshot().toString();
+
+    const QString out = dir.filePath("retarget_saved.txt");
+    QString error;
+    QVERIFY2(core::streamSave(b.snapshot(), b.encoding(), b.lineEnding(), false, out, {}, &error),
+             qPrintable(error));
+    const auto newBase = core::MappedText::open(out, true);
+    QVERIFY(newBase);
+    b.retargetMappedBase(newBase);
+
+    // Куски базы теперь ссылаются на новое отображение — текст тот же
+    QCOMPARE(b.textAt(0, b.length()), snapshotText);
+    QCOMPARE(b.snapshot().toString(), snapshotText);
+    for (int i = 0; i < b.lineCount(); ++i)
+        QCOMPARE(b.lineAt(i), b.snapshot().line(i));
 }
 
 QTEST_GUILESS_MAIN(TextBufferTest)

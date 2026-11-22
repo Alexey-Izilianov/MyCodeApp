@@ -4,7 +4,7 @@
 
 ROOT=${ROOT:-/build}
 QT_VERSION=6.11.2
-QT_PREFIX=$ROOT/qt6
+QT_PREFIX=${QT_PREFIX:-$ROOT/qt6}
 SRC=${SRC:-$ROOT/MyCodeApp}   # исходники редактора: копия рабочей папки или git clone
 BUILD=$ROOT/app-build
 DEVROOT=$ROOT/devroot   # заголовки X11/xcb/fontconfig из пакетов Debian 9, в систему не ставятся
@@ -12,8 +12,13 @@ LOGS=$ROOT/logs
 JOBS=${JOBS:-$(nproc)}
 
 export PATH=$ROOT/tools/cmake-3.31.6-linux-x86_64/bin:$ROOT/tools:$ROOT/deps/bin:$PATH
-export CC=/usr/lib/gcc-astra/bin/gcc
-export CXX=/usr/lib/gcc-astra/bin/g++
+export CC=${CC:-/usr/lib/gcc-astra/bin/gcc}
+export CXX=${CXX:-/usr/lib/gcc-astra/bin/g++}
+# Утилиты Qt, собранные новым GCC, запускаются ещё до установки Qt.
+if compiler_runtime=$("$CXX" -print-file-name=libstdc++.so.6 2>/dev/null) &&
+    [[ "$compiler_runtime" == /* && -f "$compiler_runtime" ]]; then
+    export LD_LIBRARY_PATH="${compiler_runtime%/*}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 # Сначала свои библиотеки (xkbcommon в $QT_PREFIX), затем заголовки devroot; системные .pc не видны
 export PKG_CONFIG_LIBDIR=$QT_PREFIX/lib/pkgconfig:$DEVROOT/usr/lib/x86_64-linux-gnu/pkgconfig:$DEVROOT/usr/share/pkgconfig
 

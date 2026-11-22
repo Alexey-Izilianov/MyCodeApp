@@ -1,3 +1,4 @@
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -16,6 +17,8 @@ private slots:
     void undoToDiskRemovesJournal();
     void changedOnDiskIsSkipped();
     void truncatedTailIsIgnored();
+    void writeFailureKeepsPendingEdits();
+    void caseDistinctPathsHaveIndependentJournals();
     void discardOnClose();
 
 private:
@@ -27,6 +30,32 @@ private:
     QTemporaryDir m_files;
     QTemporaryDir m_logs;
 };
+
+void RecoveryTest::writeFailureKeepsPendingEdits()
+{
+    const QString path = writeFile("abc");
+    const QString journalDir = m_logs.filePath("blocked");
+    RecoveryManager recovery(journalDir);
+    QVERIFY(QDir().rmdir(journalDir));
+    QFile blocked(journalDir);
+    QVERIFY(blocked.open(QIODevice::WriteOnly));
+    blocked.close();
+
+    Document doc;
+    QVERIFY(doc.load(path));
+    recovery.watch(&doc);
+    type(doc, QStringLiteral("x"), {0, 0});
+    recovery.flush();
+    QVERIFY(blocked.remove());
+    QVERIFY(QDir().mkdir(journalDir));
+    type(doc, QStringLiteral("y"), {0, 1});
+    recovery.flush();
+
+    Document restored;
+    QVERIFY(restored.load(path));
+    QVERIFY(recovery.restore(&restored));
+    QCOMPARE(text(restored), QStringLiteral("xyabc"));
+}
 
 void RecoveryTest::init()
 {
@@ -42,6 +71,39 @@ QString RecoveryTest::writeFile(const QByteArray &content)
     if (f.open(QIODevice::WriteOnly))
         f.write(content);
     return path;
+}
+
+void RecoveryTest::caseDistinctPathsHaveIndependentJournals()
+{
+    const QString lower = writeFile("same");
+    const QString upper = m_files.filePath(QFileInfo(lower).fileName().toUpper());
+    if (QFileInfo::exists(upper))
+        QSKIP("The test filesystem treats the two paths as aliases");
+    QVERIFY(QFile::copy(lower, upper));
+
+    {
+        RecoveryManager recovery(m_logs.path());
+        Document first;
+        Document second;
+        QVERIFY(first.load(lower));
+        QVERIFY(second.load(upper));
+        recovery.watch(&first);
+        recovery.watch(&second);
+        type(first, QStringLiteral("lower "), {0, 0});
+        type(second, QStringLiteral("upper "), {0, 0});
+        recovery.flush();
+        QCOMPARE(logs().size(), 2);
+    }
+
+    RecoveryManager recovery(m_logs.path());
+    Document first;
+    Document second;
+    QVERIFY(first.load(lower));
+    QVERIFY(second.load(upper));
+    QVERIFY(recovery.restore(&first));
+    QVERIFY(recovery.restore(&second));
+    QCOMPARE(text(first), QStringLiteral("lower same"));
+    QCOMPARE(text(second), QStringLiteral("upper same"));
 }
 
 QString RecoveryTest::text(const Document &doc)

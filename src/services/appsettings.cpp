@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QSaveFile>
 #include <QStandardPaths>
 
 namespace {
@@ -50,8 +51,12 @@ QJsonObject readJsonFile(const QString &path)
 bool writeJsonFile(const QString &path, const QJsonObject &object)
 {
     QDir().mkpath(QFileInfo(path).absolutePath());
-    QFile file(path);
-    return file.open(QIODevice::WriteOnly) && file.write(QJsonDocument(object).toJson()) >= 0;
+    QSaveFile file(path);
+    const QByteArray data = QJsonDocument(object).toJson();
+    if (file.open(QIODevice::WriteOnly) && file.write(data) == data.size() && file.commit())
+        return true;
+    qWarning("Could not save JSON file: %s", qPrintable(file.errorString()));
+    return false;
 }
 
 QVariant appSetting(const QString &key, const QVariant &fallback)

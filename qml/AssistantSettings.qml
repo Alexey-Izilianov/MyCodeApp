@@ -60,10 +60,15 @@ Flickable {
         width: page.width - 32
         spacing: 8
 
-        Heading { text: qsTr("Сервер модели"); topPadding: 0 }
+        Heading { text: qsTr("Модель ассистента"); topPadding: 0 }
+        Choice {
+            text: qsTr("Встроенная (из пакета, без интернета)")
+            current: page.assistant.provider === "builtin"
+            onClicked: page.assistant.provider = "builtin"
+        }
         Choice {
             text: qsTr("Ollama")
-            current: page.assistant.provider !== "openai"
+            current: page.assistant.provider === "ollama"
             onClicked: page.assistant.provider = "ollama"
         }
         Choice {
@@ -72,15 +77,16 @@ Flickable {
             onClicked: page.assistant.provider = "openai"
         }
 
-        Heading { text: qsTr("Адрес") }
+        Heading { text: qsTr("Адрес"); visible: page.assistant.provider !== "builtin" }
         SearchField {
             id: endpointField
+            visible: page.assistant.provider !== "builtin"
             width: parent.width
             text: page.assistant.endpoint
             onEditingFinished: page.assistant.endpoint = text
         }
 
-        Heading { text: qsTr("Модель") }
+        Heading { text: qsTr("Модель"); visible: page.assistant.provider !== "builtin" }
         Row {
             width: parent.width
             spacing: 8
@@ -114,7 +120,12 @@ Flickable {
             }
         }
         Hint {
+            visible: page.assistant.provider !== "builtin"
             text: qsTr("Рекомендуемая модель — Qwen3-4B-Instruct (лицензия Apache 2.0). Установка в Ollama: ollama pull qwen3:4b-instruct")
+        }
+        Hint {
+            visible: page.assistant.provider === "builtin"
+            text: qsTr("Модель Qwen3-4B-Instruct (Apache 2.0) лежит рядом с программой и никуда не отправляет код. Если её нет — поместите GGUF в папку models/ рядом с программой или задайте переменную MCA_MODEL.")
         }
 
         Heading {

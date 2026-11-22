@@ -66,15 +66,45 @@ int DocumentManager::restoreUnsaved()
     return restored;
 }
 
-void DocumentManager::publish(Document *doc)
+void DocumentManager::publish(Document *doc, bool restoreJournal)
 {
     connect(doc, &Document::dirtyChanged, this, &DocumentManager::tabsChanged);
     m_recovery->watch(doc);
-    m_recovery->restore(doc);
+    if (restoreJournal)
+        m_recovery->restore(doc);
     m_docs.append(doc);
     m_current = int(m_docs.size()) - 1;
     emit tabsChanged();
     emit currentIndexChanged();
+}
+
+QObject *DocumentManager::takeDocument(int index)
+{
+    if (index < 0 || index >= m_docs.size())
+        return nullptr;
+    Document *doc = m_docs.takeAt(index);
+    doc->setParent(nullptr); // владелец теперь другой менеджер (или его окно)
+    m_recovery->unwatch(doc); // журнал переедет вместе с новым владельцем
+    m_conflicts.remove(doc);
+    m_watcher.removePath(doc->filePath());
+    disconnect(doc, &Document::dirtyChanged, this, &DocumentManager::tabsChanged);
+    if (index < m_current)
+        --m_current; // забрали вкладку левее текущей — та же вкладка теперь левее
+    if (m_current >= m_docs.size())
+        m_current = m_docs.size() - 1;
+    emit tabsChanged();
+    emit currentIndexChanged();
+    return doc;
+}
+
+void DocumentManager::adopt(QObject *document)
+{
+    Document *doc = qobject_cast<Document *>(document);
+    if (!doc || m_docs.contains(doc))
+        return;
+    doc->setParent(this); // умирает вместе с этим менеджером (окном)
+    // Правки уже в документе — журнал не проигрываем, только продолжаем
+    publish(doc, false);
 }
 
 void DocumentManager::setCurrentIndex(int index)
@@ -106,7 +136,11 @@ QVariantList DocumentManager::tabs() const
 
 QString DocumentManager::pathKey(const QString &path)
 {
-    const QString clean = QDir::cleanPath(path);
+    if (path.isEmpty())
+        return {};
+    const QFileInfo info(path);
+    const QString canonical = info.canonicalFilePath();
+    const QString clean = QDir::cleanPath(canonical.isEmpty() ? info.absoluteFilePath() : canonical);
 #ifdef Q_OS_WIN
     return clean.toLower();
 #else
@@ -123,18 +157,29 @@ Document *DocumentManager::find(const QString &path) const
     return nullptr;
 }
 
+QString DocumentManager::pendingOpenKey(const QString &path) const
+{
+    const QString key = pathKey(path);
+    for (const Document *pending : m_loadingDocs)
+        if (pathKey(pending->filePath()) == key)
+            return key;
+    return {};
+}
+
 int DocumentManager::open(const QUrl &url)
 {
-    const QString path = url.isLocalFile() ? url.toLocalFile() : url.toString();
-    if (path.isEmpty())
+    const QString requestedPath = url.isLocalFile() ? url.toLocalFile() : url.toString();
+    if (requestedPath.isEmpty())
         return -1;
 
-    for (int i = 0; i < m_docs.size(); ++i) {
-        if (m_docs.at(i)->filePath() == path) {
-            activate(i); // уже открыт — просто переключаемся
-            return i;
-        }
+    const QString path = QFileInfo(requestedPath).absoluteFilePath();
+    if (Document *existing = find(path)) {
+        const int index = m_docs.indexOf(existing);
+        activate(index);
+        return index;
     }
+    if (!pendingOpenKey(path).isEmpty())
+        return -1;
 
     auto *doc = new Document(this);
     if (QFileInfo(path).size() > kAsyncLoadThreshold) {
@@ -145,16 +190,15 @@ int DocumentManager::open(const QUrl &url)
             emit loadPercentChanged();
         });
         connect(doc, &Document::loadFinished, this,
-                [this, doc](bool ok) { finishAsyncLoad(doc, ok); });
-        emit loadingChanged();
+                [this, doc, key = pathKey(path)](bool ok) { finishAsyncLoad(doc, key, ok); });
         m_loadTimer.start();
         if (!doc->loadAsync(path)) {
             m_loadingDocs.removeOne(doc);
-            emit loadingChanged();
             delete doc;
             emit errorOccurred(tr("Не удалось открыть файл"));
             return -1;
         }
+        emit loadingChanged();
         return -1; // таб появится по окончании загрузки
     }
 
@@ -167,7 +211,7 @@ int DocumentManager::open(const QUrl &url)
     return m_current;
 }
 
-void DocumentManager::finishAsyncLoad(core::Document *doc, bool ok)
+void DocumentManager::finishAsyncLoad(core::Document *doc, const QString &key, bool ok)
 {
     m_loadingDocs.removeOne(doc);
     if (ok) {
@@ -180,13 +224,21 @@ void DocumentManager::finishAsyncLoad(core::Document *doc, bool ok)
     }
     if (!isLoading())
         emit loadingChanged();
+    emit asyncOpenFinished(key, ok ? doc : nullptr, ok ? m_docs.indexOf(doc) : -1);
 }
 
 void DocumentManager::close(int index)
 {
     if (index < 0 || index >= m_docs.size())
         return;
-    core::Document *doc = m_docs.takeAt(index);
+    core::Document *doc = m_docs.at(index);
+    // Во время потокового сохранения крупного файла вкладку закрывать нельзя:
+    // отмена обрежет сохранение незавершённым
+    if (doc->isSaving()) {
+        emit errorOccurred(tr("Подождите: файл ещё сохраняется"));
+        return;
+    }
+    m_docs.takeAt(index);
     m_recovery->discard(doc); // закрыт осознанно — несохранённое не восстанавливаем
     m_conflicts.remove(doc);
     m_watcher.removePath(doc->filePath());
@@ -217,11 +269,51 @@ bool DocumentManager::isDirty(int index) const
     return valid && m_docs.at(index)->isDirty();
 }
 
-void DocumentManager::save(int index)
+void DocumentManager::closeDocument(QObject *document)
+{
+    close(indexOfDocument(document));
+}
+
+int DocumentManager::indexOfDocument(QObject *document) const
+{
+    return m_docs.indexOf(qobject_cast<Document *>(document));
+}
+
+void DocumentManager::saveAndClose(QObject *document)
+{
+    Document *doc = qobject_cast<Document *>(document);
+    if (!doc || !m_docs.contains(doc))
+        return;
+    if (doc->isSaving()) {
+        emit errorOccurred(tr("Подождите: файл ещё сохраняется"));
+        return;
+    }
+    // Крупный файл сохраняется в фоне — вкладка закрывается по завершении,
+    // пока сохранение идёт, её нельзя закрыть
+    if (doc->buffer().isMapped()) {
+        const int index = m_docs.indexOf(doc);
+        const auto conn = connect(doc, &Document::saveFinished, doc,
+                [this, doc](bool ok, const QString &error) {
+                    if (!ok)
+                        emit errorOccurred(error);
+                    else if (m_docs.contains(doc))
+                        closeDocument(doc);
+                }, Qt::SingleShotConnection);
+        if (!save(index))
+            disconnect(conn);
+        return; // при успехе вкладку закроет saveFinished
+    }
+    if (save(m_docs.indexOf(doc)))
+        closeDocument(doc);
+}
+
+bool DocumentManager::save(int index)
 {
     if (index < 0 || index >= m_docs.size())
-        return;
+        return false;
     QString error;
-    if (!m_docs.at(index)->save(&error))
-        emit errorOccurred(error);
+    if (m_docs.at(index)->save(&error))
+        return true;
+    emit errorOccurred(error);
+    return false;
 }

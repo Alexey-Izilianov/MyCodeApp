@@ -10,7 +10,15 @@ source "$(dirname "$(readlink -f "$0")")/env.sh"
 unpack() {
     local dir=$ROOT/src/$1-everywhere-src-$QT_VERSION
     if [ ! -d "$dir" ]; then
-        tar -xJf "$dir.tar.xz" -C "$ROOT/src" >&2 || { echo "!! нет исходников $dir.tar.xz" >&2; exit 1; }
+        local staging
+        staging=$(mktemp -d "$ROOT/src/.qt-unpack.XXXXXX")
+        tar -xJf "$dir.tar.xz" -C "$staging" >&2 || { echo "!! не распакован $dir.tar.xz" >&2; exit 1; }
+        if [ -d "$staging/${dir##*/}" ]; then
+            mv "$staging/${dir##*/}" "$dir"
+            rmdir "$staging"
+        else
+            mv "$staging" "$dir"
+        fi
     fi
     echo "$dir"
 }
@@ -31,7 +39,7 @@ module() { # имя, команда настройки CMake с флагами
 # (zlib, png, jpeg, pcre2, harfbuzz; freetype — из build-deps.sh); fontconfig — системный
 # (его требует шрифтовой движок), dbus подгружается при работе. Без OpenSSL: ассистент ходит к модели по http.
 module qtbase cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$QT_PREFIX" \
-    -DCMAKE_PREFIX_PATH="$DEVROOT/usr" \
+    -DCMAKE_PREFIX_PATH="$QT_PREFIX;$DEVROOT/usr" \
     -DFEATURE_xcb=ON -DFEATURE_xcb_xlib=ON -DFEATURE_bundled_xcb_xinput=ON -DFEATURE_xkbcommon=ON \
     -DFEATURE_fontconfig=ON -DFEATURE_system_freetype=ON \
     -DFEATURE_system_zlib=OFF -DFEATURE_system_png=OFF -DFEATURE_system_jpeg=OFF \

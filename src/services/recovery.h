@@ -28,6 +28,9 @@ public:
     QStringList unsavedFiles() const;
 
     void watch(core::Document *doc);
+    // Перестать следить (документ переходит в другое окно): журнал на диске
+    // сохраняется — восстановит новый владелец, когда станет его документ
+    void unwatch(core::Document *doc);
     // Проиграть журнал поверх только что загруженного с диска документа.
     // false — журнала нет или файл на диске с тех пор изменился (журнал удаляется)
     bool restore(core::Document *doc);
@@ -39,7 +42,7 @@ private:
     struct Journal {
         QString logPath;
         QByteArray pending; // записи, ещё не дописанные в файл
-        bool started = false; // заголовок уже в файле
+        qint64 committedSize = 0; // размер журнала до следующей записи
     };
 
     QString logPathFor(const QString &filePath) const;
@@ -49,4 +52,5 @@ private:
     QString m_directory;
     QHash<core::Document *, Journal> m_journals;
     QTimer m_flushTimer;
+    core::Document *m_restoring = nullptr;
 };

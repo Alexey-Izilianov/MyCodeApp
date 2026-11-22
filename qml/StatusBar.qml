@@ -92,6 +92,7 @@ Rectangle {
         Repeater {
             model: [
                 statusBar.serverStatus,
+                statusBar.editor.saving ? qsTr("Сохранение… %1%").arg(statusBar.editor.savePercent) : "",
                 statusBar.editor.readOnly ? qsTr("Только чтение") : "",
                 statusBar.editor.cursorCount > 1 ? qsTr("Курсоров: %1").arg(statusBar.editor.cursorCount) : "",
                 qsTr("Стр %1, Стлб %2").arg(statusBar.editor.cursorLine + 1)

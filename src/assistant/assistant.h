@@ -12,20 +12,23 @@
 #include <memory>
 
 #include "chatmodel.h"
+#include "localmodel.h"
 #include "prompting.h"
 #include "src/gui/editerview.h"
 #include "src/services/documentmanager.h"
 
-// Офлайн-ассистент: локальная модель через Ollama или OpenAI-совместимый сервер
-// (llama.cpp server, vLLM…) на этой машине или в локальной сети. Задачи — объяснить код,
-// написать документирующий комментарий, объяснить ошибку, пересказать журнал, предложить
-// сообщение коммита; свободные вопросы — в том же разговоре. Ответ приходит потоком.
+// Офлайн-ассистент: встроенная модель llama.cpp (из пакета, без серверов и
+// интернета), либо внешняя локальная модель через Ollama / OpenAI-совместимый
+// сервер (llama.cpp server, vLLM…) на этой машине или в локальной сети.
+// Задачи — объяснить код, написать документирующий комментарий, объяснить
+// ошибку, пересказать журнал, предложить сообщение коммита; свободные вопросы —
+// в том же разговоре. Ответ приходит потоком.
 // Подсказки модели переводятся вместе с интерфейсом: язык ответа = язык интерфейса.
 class AssistantService : public QObject {
     Q_OBJECT
     QML_NAMED_ELEMENT(Assistant)
 
-    Q_PROPERTY(QString provider READ provider WRITE setProvider NOTIFY settingsChanged) // "ollama", "openai"
+    Q_PROPERTY(QString provider READ provider WRITE setProvider NOTIFY settingsChanged) // "builtin", "ollama", "openai"
     Q_PROPERTY(QString endpoint READ endpoint WRITE setEndpoint NOTIFY settingsChanged)
     Q_PROPERTY(QString model READ model WRITE setModel NOTIFY settingsChanged)
     Q_PROPERTY(QString apiKey READ apiKey WRITE setApiKey NOTIFY settingsChanged)
@@ -63,7 +66,7 @@ public:
     QString phase() const { return m_phase; }
     bool isBusy() const { return !m_phase.isEmpty(); }
     QString commitDraft() const { return m_commitDraft; }
-    bool isCommitBusy() const { return m_commitReply != nullptr; }
+    bool isCommitBusy() const;
     QString serverState() const { return m_serverState; }
     QString serverText() const { return m_serverText; }
     QStringList models() const { return m_models; }
@@ -108,7 +111,11 @@ private:
         std::function<void(const QString &error, bool stopped)> finished; // error пустая — успех
     };
     QNetworkReply *post(const QJsonArray &messages, int maxTokens, Handler handler);
-    bool isOllama() const { return m_provider != QLatin1String("openai"); }
+    // Провайдер builtin: генерация встроенной llama.cpp без сети. Новая задача
+    // отменяет предыдущую; флаг cancel снимается «Стоп»-/stopCommitMessage
+    void postLocal(const QJsonArray &messages, int maxTokens, Handler handler, bool commit);
+    // builtin запросов сети не делает; между ollama и openai различается API
+    bool isOllama() const { return m_provider != QLatin1String("openai") && m_provider != QLatin1String("builtin"); }
     // Запрос к API выбранного сервера (путь у Ollama и у OpenAI-совместимого свой) с ключом доступа
     QNetworkRequest request(const QString &ollamaPath, const QString &openAiPath) const;
     QString describe(QNetworkReply *reply, const QByteArray &body) const;
@@ -131,11 +138,15 @@ private:
 
     QNetworkAccessManager m_network;
     ChatModel m_chat;
+    LocalModel m_local;
     QPointer<QNetworkReply> m_reply;
     int m_replyRow = -1;
     QString m_phase;
     // Фоновая подготовка текста (выжимка журнала); false — отменена новой задачей или «Стоп»
     std::shared_ptr<std::atomic_bool> m_preparing;
+    // Отмена генерации локальной модели: чат и сообщение коммита отдельно
+    std::shared_ptr<std::atomic_bool> m_localCancel;
+    std::shared_ptr<std::atomic_bool> m_localCommitCancel;
 
     QPointer<QNetworkReply> m_commitReply;
     QString m_commitDraft;

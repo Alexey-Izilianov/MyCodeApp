@@ -36,8 +36,8 @@ class EditorView : public QQuickItem {
 
     Q_PROPERTY(QObject *document READ document WRITE setDocument NOTIFY documentChanged)
     Q_PROPERTY(QString filePath READ filePath NOTIFY documentChanged)
-    Q_PROPERTY(QString encoding READ encoding NOTIFY documentChanged)
-    Q_PROPERTY(QString lineEnding READ lineEnding NOTIFY documentChanged)
+    Q_PROPERTY(QString encoding READ encoding NOTIFY fileFormatChanged)
+    Q_PROPERTY(QString lineEnding READ lineEnding NOTIFY fileFormatChanged)
     Q_PROPERTY(QString language READ language NOTIFY documentChanged)
     Q_PROPERTY(qreal scrollY READ scrollY WRITE setScrollY NOTIFY scrollChanged)
     Q_PROPERTY(qreal contentHeight READ contentHeight NOTIFY contentSizeChanged)
@@ -48,6 +48,8 @@ class EditorView : public QQuickItem {
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
     Q_PROPERTY(qreal lineHeight READ lineHeight CONSTANT)
     Q_PROPERTY(bool readOnly READ readOnly NOTIFY documentChanged)
+    Q_PROPERTY(bool saving READ saving NOTIFY savingChanged)
+    Q_PROPERTY(int savePercent READ savePercent NOTIFY saveProgressChanged)
     Q_PROPERTY(bool hasSelection READ hasSelection NOTIFY cursorChanged) // у основного курсора
     Q_PROPERTY(bool snippetActive READ snippetActive NOTIFY snippetChanged)
     Q_PROPERTY(bool wordWrap READ wordWrap WRITE setWordWrap NOTIFY wordWrapChanged)
@@ -76,7 +78,9 @@ public:
     bool canRedo() const { return m_document && m_document->canRedo(); }
     qreal lineHeight() const { return m_lineHeight; }
     const QFont &textFont() const { return m_font; }
-    bool readOnly() const { return m_document && m_document->isReadOnly(); }
+    bool readOnly() const { return m_document && (m_document->isReadOnly() || m_document->isSaving()); }
+    bool saving() const { return m_document && m_document->isSaving(); }
+    int savePercent() const { return m_savePercent; }
     bool hasSelection() const { return primary().hasSelection(); }
     // Строки выделения основного курсора [from, to]; false — выделения нет
     bool selectedLines(int *from, int *to) const;
@@ -106,7 +110,9 @@ public:
     // Подсвеченные ряды; строки обрезаются до maxColumn символов
     QVector<StyledLine> styledLines(int firstRow, int count, int maxColumn) const;
 
-    Q_INVOKABLE void save();
+    Q_INVOKABLE bool save();
+    Q_INVOKABLE void saveAsUtf8();
+    Q_INVOKABLE void saveWithLineEnding(const QString &ending);
     Q_INVOKABLE void undo();
     Q_INVOKABLE void redo();
     Q_INVOKABLE void copy();
@@ -164,7 +170,8 @@ public:
     Q_INVOKABLE void foldAll();
     Q_INVOKABLE void unfoldAll();
 
-    Q_INVOKABLE void find(const QString &needle, bool caseSensitive);
+    // mode: 0 plain, 1 whole word, 2 regex (SearchEngine::Mode)
+    Q_INVOKABLE void find(const QString &needle, bool caseSensitive, int mode = 0);
     Q_INVOKABLE void findNext();
     Q_INVOKABLE void findPrev();
     Q_INVOKABLE void clearSearch();
@@ -176,7 +183,12 @@ signals:
     void cursorChanged();
     void historyChanged();
     void errorOccurred(const QString &message);
+    void savingChanged();
+    void saveProgressChanged();
+    void fileFormatChanged();
     void searchUpdated(int current, int total);
+    // Ошибка регэкспа поиска: не диалог «Ошибка файла», а строка поиска
+    void searchError(const QString &message);
     void contentChanged(); // текст, подсветка или свёрнутость
     void textTyped(const QString &text);
     void hoverRest(int line, int column, qreal x, qreal y); // мышь замерла над символом
@@ -377,6 +389,7 @@ private:
     bool m_selfEdit = false; // идёт правка из этого вида
     qreal m_rightMargin = 0;
     bool m_wordWrap = false;
+    int m_savePercent = 0; // прогресс потокового сохранения активного документа
     int m_wrapColumns = 0;                 // ширина ряда в колонках
     mutable QVector<int> m_wrapExtra;      // по строкам: рядов сверх первого; -1 — пересчитать
     mutable bool m_wrapPending = false;    // есть -1 в m_wrapExtra — в строках [from, to)
@@ -399,9 +412,11 @@ private:
 
     SearchEngine *m_searchEngine = nullptr;
     QVector<Match> m_matches;
+
     int m_currentMatch = -1;
     QString m_searchNeedle;
     bool m_searchCase = false;
+    int m_searchMode = 0; // SearchEngine::Mode: plain / whole word / regex
 
     // Сцена
     bool m_contentDirty = true; // текст/подсветка поменялись — пересобрать ноды

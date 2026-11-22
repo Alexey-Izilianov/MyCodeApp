@@ -16,6 +16,7 @@ using assistant::Delta;
 
 namespace {
 
+const QString kBuiltinProvider = QStringLiteral("builtin");
 const QString kOllamaEndpoint = QStringLiteral("http://127.0.0.1:11434");
 const QString kOpenAiEndpoint = QStringLiteral("http://127.0.0.1:8080"); // llama.cpp server
 const QString kDefaultModel = QStringLiteral("qwen3:4b-instruct");
@@ -36,7 +37,15 @@ constexpr int kDiffChars = 8000;
 
 QString defaultEndpoint(const QString &provider)
 {
-    return provider == QLatin1String("openai") ? kOpenAiEndpoint : kOllamaEndpoint;
+    return provider == QLatin1String("openai") ? kOpenAiEndpoint
+         : provider == kBuiltinProvider ? QString()
+         : kOllamaEndpoint;
+}
+
+// Провайдер builtin: встроенная llama.cpp, никакого сервера
+bool isBuiltin(const QString &provider)
+{
+    return provider == QLatin1String("builtin");
 }
 
 // Блок кода в запросе; язык — тот же, что видит пользователь в строке состояния
@@ -71,7 +80,7 @@ AssistantService::AssistantService(QObject *parent)
     : QObject(parent)
     , m_chat(this)
 {
-    m_provider = appSetting(kProviderKey, QStringLiteral("ollama")).toString();
+    m_provider = appSetting(kProviderKey, kBuiltinProvider).toString();
     m_endpoint = appSetting(kEndpointKey, defaultEndpoint(m_provider)).toString();
     m_model = appSetting(kModelKey, kDefaultModel).toString();
     m_apiKey = appSetting(kApiKeyKey).toString();
@@ -82,6 +91,8 @@ AssistantService::~AssistantService()
 {
     if (m_preparing)
         *m_preparing = false;
+    if (m_localCancel)
+        *m_localCancel = true;
     // Обрыв соединения останавливает генерацию и на сервере
     for (QNetworkReply *reply : {m_reply.data(), m_commitReply.data(), m_checkReply.data()})
         if (reply) {
@@ -305,7 +316,7 @@ void AssistantService::send(ChatModel::Message request)
 
     auto timing = std::make_shared<Timing>();
     timing->clock.start();
-    m_reply = post(messages, kAnswerTokens, {
+    const AssistantService::Handler route {
         [this, row, timing](const Delta &d) {
             if (!d.thinking.isEmpty() && m_phase == QLatin1String("waiting"))
                 setPhase(QStringLiteral("thinking"));
@@ -333,7 +344,42 @@ void AssistantService::send(ChatModel::Message request)
                 setPhase({});
             }
         },
-    });
+    };
+    if (isBuiltin(m_provider)) {
+        m_reply = nullptr;
+        postLocal(messages, kAnswerTokens, route, false);
+    } else {
+        m_reply = post(messages, kAnswerTokens, route);
+    }
+}
+
+// Генерация встроенной моделью: те же обратные вызовы, что у post(), без сети.
+// Новая задача отменяет предыдущую, «Стоп» тоже.
+void AssistantService::postLocal(const QJsonArray &messages, int maxTokens, Handler handler, bool commit)
+{
+    auto cancel = std::make_shared<std::atomic_bool>(false);
+    if (commit)
+        m_localCommitCancel = cancel;
+    else
+        m_localCancel = cancel;
+    LocalModel::Request request;
+    request.contextSize = m_contextSize;
+    request.maxTokens = maxTokens;
+    for (const QJsonValue &v : messages)
+        request.messages.emplace_back(v.toObject().value("role").toString(),
+                                      v.toObject().value("content").toString());
+    m_local.generate(request,
+        [handler](const QString &piece) {
+            handler.delta(Delta{piece, {}, {}, false, -1, -1});
+            return true;
+        },
+        [this, handler, cancel, commit](const QString &error, int tokens, bool stopped) {
+            auto &field = commit ? m_localCommitCancel : m_localCancel;
+            if (field == cancel)
+                field = nullptr;
+            // Модель сама объясняет, что с ней не так (файл, память); останов — не ошибка
+            handler.finished(error, stopped);
+        });
 }
 
 void AssistantService::stop()
@@ -342,6 +388,8 @@ void AssistantService::stop()
         *m_preparing = false;
         m_preparing.reset();
     }
+    if (m_localCancel)
+        *m_localCancel = true; // builtin: рабочий поток заметит флаг и завершит с stopped
     if (m_reply)
         m_reply->abort(); // finished придёт сразу и завершит ответ
     setPhase({});
@@ -577,13 +625,12 @@ void AssistantService::suggestCommitMessage(const QString &diff)
                                    "добавь короткий список «- …». Верни только текст сообщения, без кавычек, "
                                    "пояснений и блоков кода.")
                                     + QStringLiteral("\n\n```diff\n") + diff + QStringLiteral("\n```")}}};
-    m_commitReply = post(messages, kCommitTokens, {
-        [this](const Delta &d) {
-            if (d.content.isEmpty())
-                return;
-            m_commitDraft += d.content;
-            emit commitDraftChanged();
-        },
+    const Handler commitRoute{[this](const Delta &d) {
+        if (d.content.isEmpty())
+            return;
+        m_commitDraft += d.content;
+        emit commitDraftChanged();
+    },
         [this](const QString &error, bool stopped) {
             m_commitReply = nullptr;
             emit commitBusyChanged();
@@ -595,15 +642,25 @@ void AssistantService::suggestCommitMessage(const QString &diff)
                 m_commitDraft = assistant::cleanCommitMessage(m_commitDraft);
                 emit commitDraftChanged();
             }
-        },
-    });
+        }};
+    if (isBuiltin(m_provider))
+        postLocal(messages, kCommitTokens, commitRoute, true);
+    else
+        m_commitReply = post(messages, kCommitTokens, commitRoute);
     emit commitBusyChanged();
+}
+
+bool AssistantService::isCommitBusy() const
+{
+    return m_commitReply != nullptr || m_localCommitCancel != nullptr;
 }
 
 void AssistantService::stopCommitMessage()
 {
     if (m_commitReply)
         m_commitReply->abort();
+    if (m_localCommitCancel)
+        *m_localCommitCancel = true; // builtin: генерация коммита в рабочем потоке
 }
 
 void AssistantService::checkServer()
@@ -614,6 +671,21 @@ void AssistantService::checkServer()
         old->abort();
     }
     setServer(QStringLiteral("checking"), tr("Проверка…"));
+    // Встроенная модель: проверяем сам файл — сервер не нужен
+    if (isBuiltin(m_provider)) {
+        const QString file = LocalModel::modelFile();
+        m_models.clear();
+        if (!file.isEmpty()) {
+            const qint64 gb = QFileInfo(file).size() / (1024 * 1024 * 1024);
+            setServer(QStringLiteral("ok"),
+                      tr("Встроенная модель на месте: %1 (%2 ГБ)").arg(QFileInfo(file).fileName()).arg(gb));
+        } else {
+            setServer(QStringLiteral("error"),
+                      tr("Модель из пакета не найдена: положите GGUF в %1 или задайте переменную MCA_MODEL")
+                          .arg(LocalModel::modelDirectory()));
+        }
+        return;
+    }
     const bool ollama = isOllama();
     QNetworkRequest models = request(QStringLiteral("/api/tags"), QStringLiteral("/v1/models"));
     models.setTransferTimeout(5000);

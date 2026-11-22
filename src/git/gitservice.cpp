@@ -105,6 +105,8 @@ void GitService::setRootPath(const QString &path)
         return;
     m_root = path;
     ++m_generation;
+    const bool wasBusy = isBusy();
+    m_running = 0;
     m_pool.start([] { hg::Repository::closeSessions(); }); // сессии живут в потоке пула
     m_refreshRunning = m_refreshQueued = false;
     m_history.reset({}, {});
@@ -114,6 +116,8 @@ void GitService::setRootPath(const QString &path)
         emit historyLoadingChanged();
     }
     applySnapshot({});
+    if (wasBusy)
+        emit busyChanged();
     emit rootPathChanged();
     refresh();
 }

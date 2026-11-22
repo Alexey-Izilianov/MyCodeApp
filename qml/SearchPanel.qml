@@ -16,16 +16,21 @@ Item {
         input.selectAll()
     }
     function run() {
+        errorText = ""
         if (input.text.length > 0)
-            search.start(input.text, caseButton.checked)
+            search.start(input.text, caseButton.checked, panel.mode)
         else
             search.clear()
     }
+    // 0 — plain, 1 — целое слово, 2 — регэксп
+    readonly property int mode: regexButton.checked ? 2 : wordButton.checked ? 1 : 0
+    property string errorText: "" // ошибка регэкспа
 
     ProjectSearch {
         id: search
         rootPath: panel.rootPath
         onRootPathChanged: clear()
+        onErrorOccurred: (message) => { panel.errorText = message }
     }
 
     Timer {
@@ -45,7 +50,7 @@ Item {
             spacing: 4
             SearchField {
                 id: input
-                width: panel.width - 16 - caseButton.width - 4
+                width: panel.width - 16 - caseButton.width - wordButton.width - regexButton.width - 8
                 placeholderText: panel.rootPath === "" ? qsTr("Откройте папку") : qsTr("Найти в проекте")
                 enabled: panel.rootPath !== ""
                 onTextChanged: debounce.restart()
@@ -61,6 +66,30 @@ Item {
                 tip: qsTr("Учитывать регистр")
                 onToggled: panel.run()
             }
+            IconButton {
+                id: wordButton
+                anchors.verticalCenter: input.verticalCenter
+                glyph: "ab"
+                checkable: true
+                tip: qsTr("Целое слово")
+                onToggled: {
+                    if (checked)
+                        regexButton.checked = false
+                    panel.run()
+                }
+            }
+            IconButton {
+                id: regexButton
+                anchors.verticalCenter: input.verticalCenter
+                glyph: ".*"
+                checkable: true
+                tip: qsTr("Регэксп")
+                onToggled: {
+                    if (checked)
+                        wordButton.checked = false
+                    panel.run()
+                }
+            }
         }
         Label {
             x: 12
@@ -73,6 +102,15 @@ Item {
                 : search.matchCount > 0 ? qsTr("%1 совпадений в %2 файлах%3").arg(search.matchCount)
                                               .arg(search.fileCount).arg(search.truncated ? qsTr(" (показаны первые)") : "")
                 : input.text !== "" && search.filesTotal > 0 ? qsTr("Ничего не найдено") : ""
+        }
+        Label {
+            x: 12
+            width: parent.width - 24
+            visible: panel.errorText !== ""
+            color: Theme.error
+            font.pixelSize: Theme.smallFontSize
+            elide: Text.ElideRight
+            text: panel.errorText !== "" ? qsTr("Ошибка регэкспа: %1").arg(panel.errorText) : ""
         }
     }
 

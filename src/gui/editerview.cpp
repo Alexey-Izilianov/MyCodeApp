@@ -139,6 +139,11 @@ EditorView::EditorView(QQuickItem *parent)
                 emit searchUpdated(m_currentMatch + 1, int(m_matches.size()));
                 update();
             });
+    // Регэксп не собрался — совпадений нет, ошибка уходит в строку поиска
+    connect(m_searchEngine, &SearchEngine::errorOccurred, this, [this](const QString &message) {
+        clearSearch();
+        emit searchError(message);
+    });
 }
 
 EditorView::~EditorView() = default;
@@ -181,10 +186,16 @@ void EditorView::setDocument(QObject *object)
     clearSearch();
     restartCaretBlink();
     emit documentChanged();
+    emit fileFormatChanged();
     emit contentSizeChanged();
     emit scrollChanged();
     emit cursorChanged();
     emit historyChanged();
+    if (m_savePercent != 0) {
+        m_savePercent = 0;
+        emit saveProgressChanged();
+    }
+    emit savingChanged();
     update();
 }
 
@@ -215,10 +226,32 @@ void EditorView::track(Document *doc)
         else if (m_viewStates.contains(doc))
             m_viewStates[doc].folds.clear();
     });
+    connect(doc, &Document::fileFormatChanged, this, [this, doc] {
+        if (doc == m_document)
+            emit fileFormatChanged();
+    });
+    connect(doc, &Document::saveStateChanged, this, [this, doc] {
+        if (doc == m_document)
+            emit savingChanged();
+    });
+    connect(doc, &Document::saveProgress, this, [this, doc](int percent) {
+        if (doc == m_document && m_savePercent != percent) {
+            m_savePercent = percent;
+            emit saveProgressChanged();
+        }
+    });
+    connect(doc, &Document::saveFinished, this, [this, doc](bool ok, const QString &error) {
+        if (doc != m_document)
+            return;
+        emit savingChanged();
+        if (!ok)
+            emit errorOccurred(error);
+    });
 }
 
 void EditorView::documentReloaded()
 {
+    emit fileFormatChanged();
     m_folds.clear();
     invalidateWrap();
     if (m_syntax.hasLanguage())
@@ -670,11 +703,39 @@ qreal EditorView::contentHeight() const
     return m_document ? (rowCount() - 1) * m_lineHeight + height() : 0;
 }
 
-void EditorView::save()
+bool EditorView::save()
+{
+    if (!m_document || m_document->isSaving())
+        return false;
+    QString error;
+    // Крупный файл (отображён в память) сохраняется потоково в фоне
+    if (m_document->buffer().isMapped() && m_document->saveAsync(&error))
+        return true;
+    if (m_document->save(&error))
+        return true;
+    emit errorOccurred(error);
+    return false;
+}
+
+void EditorView::saveAsUtf8()
 {
     QString error;
-    if (m_document && !m_document->save(&error))
+    if (m_document && !m_document->saveAsUtf8(&error))
         emit errorOccurred(error);
+}
+
+void EditorView::saveWithLineEnding(const QString &ending)
+{
+    if (!m_document)
+        return;
+    for (const core::LineEnding value : {core::LineEnding::Lf, core::LineEnding::Crlf, core::LineEnding::Cr}) {
+        if (core::lineEndingName(value) == ending) {
+            QString error;
+            if (!m_document->saveWithLineEnding(value, &error))
+                emit errorOccurred(error);
+            return;
+        }
+    }
 }
 
 // ── Ряды и перенос ──────────────────────────────────────────────────────
@@ -1702,7 +1763,7 @@ void EditorView::unfoldAll()
 
 // ── Поиск ───────────────────────────────────────────────────────────────
 
-void EditorView::find(const QString &needle, bool caseSensitive)
+void EditorView::find(const QString &needle, bool caseSensitive, int mode)
 {
     if (!m_document || needle.isEmpty()) {
         clearSearch();
@@ -1710,14 +1771,16 @@ void EditorView::find(const QString &needle, bool caseSensitive)
     }
     m_searchNeedle = needle;
     m_searchCase = caseSensitive;
-    m_searchEngine->start(buffer().snapshot(), needle, caseSensitive);
+    m_searchMode = mode;
+    m_searchEngine->start(buffer().snapshot(), needle, caseSensitive,
+                          SearchEngine::Mode(mode));
 }
 
 void EditorView::findNext()
 {
     if (m_matches.isEmpty()) {
         if (!m_searchNeedle.isEmpty())
-            find(m_searchNeedle, m_searchCase);
+            find(m_searchNeedle, m_searchCase, m_searchMode);
         return;
     }
     jumpToMatch(m_currentMatch < 0 ? nearestMatchFromCursor()
@@ -1728,7 +1791,7 @@ void EditorView::findPrev()
 {
     if (m_matches.isEmpty()) {
         if (!m_searchNeedle.isEmpty())
-            find(m_searchNeedle, m_searchCase);
+            find(m_searchNeedle, m_searchCase, m_searchMode);
         return;
     }
     const int n = int(m_matches.size());

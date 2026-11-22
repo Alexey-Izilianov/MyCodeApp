@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <atomic>
 #include <functional>
 #include "piecetable.h"
 
@@ -12,6 +13,14 @@ enum class LineEnding { Lf, Crlf, Cr };
 QString encodingName(Encoding e);      // "UTF-8", "UTF-16 LE", "Windows-1251", "Latin-1"
 QString lineEndingName(LineEnding le); // "LF", "CRLF", "CR"
 QString lineEndingString(LineEnding le);
+
+// Потоковое сохранение снимка в файл (по частям, полный текст в память
+// не собирается). progress возвращает percent; false из progress — отмена.
+// Файл записывается целиком (в temp), не через QSaveFile: отображение
+// оригинала и переименование управляет вызывающий (см. Document::saveAsync).
+bool streamSave(const PieceTable::Snapshot &text, Encoding encoding, LineEnding le,
+                bool bomAfterDecode, const QString &path,
+                const std::function<bool(int)> &progress, QString *error);
 
 // Буфер: piece table + line index, строки без терминальных переводов.
 // Position: line/column, column — индекс QChar.
@@ -30,6 +39,7 @@ public:
     bool load(const QString &path, QString *error = nullptr);
     // Декодирование готовых байтов (используется асинхронной загрузкой Document)
     bool loadFromData(const QByteArray &data, QString *error = nullptr);
+    static QString decode(const QByteArray &data, Encoding *encoding = nullptr);
     // Отобразить файл в память без копирования (только чтение). false —
     // не вышло или кодировка не UTF-8/Latin-1: тогда грузить обычным путём
     bool loadMapped(const QString &path, const std::function<void(int)> &progress = {});
@@ -40,6 +50,17 @@ public:
     int lineCount() const { return m_pt.lineCount(); }
     QString lineAt(int i) const { return m_pt.line(i); }
     int lineLength(int line) const { return m_pt.lineLength(line); }
+
+    // Манипуляции с оригиналом-отображением при сохранении крупного файла:
+    // перенацелить куски на новое отображение (Document::saveAsync),
+    // вернуть отображение, если переименование не прошло, переоткрыть базу
+    // по новому пути после переименования temp в целевой файл
+    void retargetMappedBase(const std::shared_ptr<const MappedText> &base) { m_pt.retargetBase(base); }
+    void releaseMappedBase() const { m_pt.releaseBaseMapping(); }
+    bool remapMappedBase() const { return m_pt.remapBase(); }
+    bool reopenMappedBaseAs(const QString &path) const { return m_pt.reopenBaseAs(path); }
+    bool mappedBaseHasBom() const { return m_pt.baseHasBom(); }
+
 
     int offsetOf(const Position &pos) const; // позиция зажимается в границы текста
     Position positionOf(int offset) const;

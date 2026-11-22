@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 
 #include "src/core/document.h"
 
@@ -43,6 +44,22 @@ Header diskState(const QString &path)
     const QFileInfo info(path);
     return {path, info.size(), info.lastModified().toMSecsSinceEpoch()};
 }
+
+QString recoveryPathKey(const QString &path)
+{
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+#ifdef Q_OS_WIN
+    return absolute.toLower();
+#else
+    return absolute;
+#endif
+}
+
+QString journalFileName(const QByteArray &key)
+{
+    return QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex())
+           + QStringLiteral(".log");
+}
 } // namespace
 
 RecoveryManager::RecoveryManager(const QString &directory, QObject *parent)
@@ -71,10 +88,12 @@ QString RecoveryManager::defaultDirectory()
 
 QString RecoveryManager::logPathFor(const QString &filePath) const
 {
-    const QByteArray key = QFileInfo(filePath).absoluteFilePath().toLower().toUtf8();
-    return m_directory + u'/'
-           + QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex())
-           + QStringLiteral(".log");
+    const QString name = journalFileName(recoveryPathKey(filePath).toUtf8());
+#ifdef Q_OS_WIN
+    return m_directory + u'/' + name;
+#else
+    return m_directory + QStringLiteral("/path-") + name;
+#endif
 }
 
 QStringList RecoveryManager::unsavedFiles() const
@@ -98,7 +117,7 @@ void RecoveryManager::watch(Document *doc)
 {
     if (m_journals.contains(doc))
         return;
-    m_journals.insert(doc, {logPathFor(doc->filePath()), {}, false});
+    m_journals.insert(doc, {logPathFor(doc->filePath()), {}, 0});
     connect(doc, &Document::edited, this,
             [this, doc](int offset, int count, const QString &text) { record(doc, offset, count, text); });
     // Документ снова совпадает с диском (сохранили или отменили всё) — журнал не нужен
@@ -112,37 +131,68 @@ void RecoveryManager::watch(Document *doc)
     });
 }
 
+void RecoveryManager::unwatch(core::Document *doc)
+{
+    if (!m_journals.contains(doc))
+        return;
+    flush();
+    // Снимаем только свои подписки на этот документ (получатели — this);
+    // журнал остаётся на диске, его продолжит новый владелец документа
+    disconnect(doc, &Document::edited, this, nullptr);
+    disconnect(doc, &Document::dirtyChanged, this, nullptr);
+    disconnect(doc, &QObject::destroyed, this, nullptr);
+    m_journals.remove(doc);
+}
+
 bool RecoveryManager::restore(Document *doc)
 {
     const QString logPath = logPathFor(doc->filePath());
     QFile file(logPath);
-    if (!file.open(QIODevice::ReadOnly))
+    if (!file.open(QIODevice::ReadOnly)) {
+#ifndef Q_OS_WIN
+        // Старые журналы на Linux и macOS хэшировали путь в нижнем регистре.
+        const QByteArray oldKey = QFileInfo(doc->filePath()).absoluteFilePath().toLower().toUtf8();
+        file.setFileName(m_directory + u'/' + journalFileName(oldKey));
+        if (!file.open(QIODevice::ReadOnly))
+            return false;
+#else
         return false;
+#endif
+    }
 
     QDataStream in(&file);
     in.setVersion(kStreamVersion);
     Header header;
     const Header disk = diskState(doc->filePath());
-    if (!readHeader(in, &header) || header.size != disk.size || header.modified != disk.modified) {
+    if (!readHeader(in, &header) || recoveryPathKey(header.path) != recoveryPathKey(disk.path))
+        return false;
+    if (header.size != disk.size || header.modified != disk.modified) {
         file.close();
-        QFile::remove(logPath); // файл на диске изменился — правки к нему не применимы
+        file.remove(); // файл на диске изменился — правки к нему не применимы
         return false;
     }
 
     QVector<Document::RawEdit> edits;
+    qint64 committedSize = file.pos();
     while (!in.atEnd()) {
         Document::RawEdit e;
         in >> e.offset >> e.count >> e.text;
         if (in.status() != QDataStream::Ok)
             break; // запись оборвана сбоем — всё до неё уже прочитано
         edits.append(e);
+        committedSize = file.pos();
     }
     file.close();
-    QFile::remove(logPath); // перепишется заново: проигрывание снова попадёт в журнал
 
-    if (m_journals.contains(doc))
-        m_journals[doc] = {logPath, {}, false};
+    if (auto it = m_journals.find(doc); it != m_journals.end()) {
+        if (file.fileName() != logPath && !file.rename(logPath))
+            qWarning("Could not migrate recovery journal: %s", qPrintable(file.errorString()));
+        it->logPath = file.fileName();
+        it->committedSize = committedSize;
+    }
+    m_restoring = doc;
     doc->replayEdits(edits);
+    m_restoring = nullptr;
     return !edits.isEmpty();
 }
 
@@ -158,18 +208,20 @@ void RecoveryManager::drop(Document *doc)
     if (it == m_journals.end())
         return;
     it->pending.clear();
-    it->started = false;
+    it->committedSize = 0;
     QFile::remove(it->logPath);
 }
 
 void RecoveryManager::record(Document *doc, int offset, int count, const QString &text)
 {
+    if (doc == m_restoring)
+        return;
     auto it = m_journals.find(doc);
     if (it == m_journals.end())
         return;
     QDataStream out(&it->pending, QIODevice::Append);
     out.setVersion(kStreamVersion);
-    if (!it->started && it->pending.isEmpty())
+    if (it->committedSize == 0 && it->pending.isEmpty())
         out << diskState(doc->filePath()); // первая правка после совпадения с диском
     out << qint32(offset) << qint32(count) << text;
     if (!m_flushTimer.isActive())
@@ -178,16 +230,32 @@ void RecoveryManager::record(Document *doc, int offset, int count, const QString
 
 void RecoveryManager::flush()
 {
+    bool retry = false;
     for (auto it = m_journals.begin(); it != m_journals.end(); ++it) {
         if (it->pending.isEmpty())
             continue;
-        QFile file(it->logPath);
-        const QIODevice::OpenMode mode = it->started ? QIODevice::Append
-                                                     : QIODevice::WriteOnly | QIODevice::Truncate;
-        if (!file.open(mode))
-            continue; // диск недоступен — попробуем при следующей правке
-        file.write(it->pending);
-        it->pending.clear();
-        it->started = true;
+        bool written = false;
+        if (it->committedSize == 0) {
+            QSaveFile file(it->logPath);
+            written = file.open(QIODevice::WriteOnly)
+                      && file.write(it->pending) == it->pending.size() && file.commit();
+        } else {
+            QFile file(it->logPath);
+            // Оборванный хвост удаляем до повторной записи того же блока.
+            if (file.open(QIODevice::ReadWrite | QIODevice::ExistingOnly)
+                && file.size() >= it->committedSize && file.resize(it->committedSize)
+                && file.seek(it->committedSize)) {
+                written = file.write(it->pending) == it->pending.size() && file.flush();
+            }
+        }
+        if (written) {
+            it->committedSize += it->pending.size();
+            it->pending.clear();
+        } else {
+            qWarning("Could not write recovery journal: %s", qPrintable(it->logPath));
+            retry = true;
+        }
     }
+    if (retry && !m_flushTimer.isActive())
+        m_flushTimer.start();
 }

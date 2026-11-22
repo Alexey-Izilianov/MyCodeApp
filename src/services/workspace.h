@@ -57,9 +57,10 @@ signals:
     void rootChanged();
     void filesChanged();
     void scanningChanged();
+    void sessionSaveFailed(const QString &message) const;
 
 private:
-    QString sessionPath() const;
+    QString sessionPath(bool legacy = false) const;
     void setScanning(bool scanning);
 
     QString m_root;

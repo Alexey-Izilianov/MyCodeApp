@@ -81,6 +81,22 @@ public:
     void reset(std::shared_ptr<const MappedText> mapped);
     bool isMapped() const { return m_core.mapped != nullptr; }
 
+    // Перенацелить базу на новое отображение того же логического текста
+    // (после сохранения: файл на диске перезаписан тем же содержимым).
+    // Логические позиции и newlines не меняются, у кусков базы новая точка
+    // отсчёта — их текущее логическое начало.
+    void retargetBase(const std::shared_ptr<const MappedText> &base);
+    void releaseBaseMapping() const {
+        if (m_core.mapped)
+            m_core.mapped->releaseMapping();
+    }
+    bool remapBase() const { return !m_core.mapped || m_core.mapped->remap(); }
+    // База теперь лежит по новому пути (temp переименован в целевой файл)
+    bool reopenBaseAs(const QString &path) const {
+        return !m_core.mapped || m_core.mapped->reopenAs(path);
+    }
+    bool baseHasBom() const { return m_core.mapped && m_core.mapped->hasBom(); }
+
     int length() const { return m_core.length(); }
     int pieceCount() const { return m_core.pieces.size(); }
 

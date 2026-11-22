@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -187,19 +188,38 @@ void Workspace::setSetting(const QString &key, const QVariant &value) const
     setAppSetting(key, value);
 }
 
-QString Workspace::sessionPath() const
+QString Workspace::sessionPath(bool legacy) const
 {
-    const QByteArray key = QCryptographicHash::hash(m_root.toLower().toUtf8(), QCryptographicHash::Sha1);
-    return appDataDir() + QStringLiteral("/sessions/") + QString::fromLatin1(key.toHex()) + QStringLiteral(".json");
+#ifdef Q_OS_WIN
+    legacy = true; // существующий формат уже учитывает правила Windows
+#endif
+    const QString key = legacy ? m_root.toLower() : m_root;
+    const QByteArray hash = QCryptographicHash::hash(key.toUtf8(), QCryptographicHash::Sha1);
+    const QString prefix = legacy ? QStringLiteral("/sessions/") : QStringLiteral("/sessions/path-");
+    return appDataDir() + prefix + QString::fromLatin1(hash.toHex()) + QStringLiteral(".json");
 }
 
 QVariantMap Workspace::loadSession() const
 {
-    return m_root.isEmpty() ? QVariantMap() : readJsonFile(sessionPath()).toVariantMap();
+    if (m_root.isEmpty())
+        return {};
+    const QJsonObject session = readJsonFile(sessionPath());
+#ifndef Q_OS_WIN
+    if (session.isEmpty() && !QFileInfo::exists(sessionPath())) {
+        const QJsonObject legacy = readJsonFile(sessionPath(true));
+        const QJsonArray files = legacy.value(QStringLiteral("files")).toArray();
+        const QString prefix = m_root + (m_root.endsWith(u'/') ? QString() : QStringLiteral("/"));
+        for (const QJsonValue &file : files) {
+            if (file.toObject().value(QStringLiteral("path")).toString().startsWith(prefix))
+                return legacy.toVariantMap();
+        }
+    }
+#endif
+    return session.toVariantMap();
 }
 
 void Workspace::saveSession(const QVariantMap &session) const
 {
-    if (!m_root.isEmpty())
-        writeJsonFile(sessionPath(), QJsonObject::fromVariantMap(session));
+    if (!m_root.isEmpty() && !writeJsonFile(sessionPath(), QJsonObject::fromVariantMap(session)))
+        emit sessionSaveFailed(tr("Не удалось сохранить сессию проекта"));
 }

@@ -18,8 +18,8 @@ std::shared_ptr<const MappedText> MappedText::open(const QString &path, bool utf
         return nullptr;
     t->m_utf8 = utf8;
     const uchar *d = t->m_data;
-    if (utf8 && t->m_size >= 3 && d[0] == 0xEF && d[1] == 0xBB && d[2] == 0xBF)
-        t->m_begin = 3;
+    if (utf8 && t->m_size >= BomSize && d[0] == 0xEF && d[1] == 0xBB && d[2] == 0xBF)
+        t->m_begin = BomSize;
 
     // Длина в QChar: каждый байт, кроме продолжений UTF-8; 4-байтовая
     // последовательность — суррогатная пара, ещё +1. '\r' перед '\n' не считается.
@@ -106,6 +106,32 @@ void MappedText::forEachLine(const std::function<bool(int, const QString &)> &fn
             return;
         byte = end + 1;
     }
+}
+
+void MappedText::releaseMapping() const
+{
+    if (m_data)
+        m_file.unmap(m_data);
+    m_data = nullptr;
+    m_file.close();
+}
+
+bool MappedText::remap() const
+{
+    // Файл не менялся (иначе remap не вызывается), индексы остаются верными
+    if (m_data)
+        return true;
+    if (!m_file.open(QIODevice::ReadOnly) || m_file.size() != m_size)
+        return false;
+    m_data = m_file.map(0, m_size);
+    return m_data != nullptr;
+}
+
+bool MappedText::reopenAs(const QString &path) const
+{
+    releaseMapping();
+    m_file.setFileName(path);
+    return remap();
 }
 
 } // namespace core

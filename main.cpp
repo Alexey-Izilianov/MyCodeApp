@@ -153,8 +153,15 @@ int main(int argc, char *argv[])
     // Смоук-режим самотеста: MYCODEAPP_SHOT=<путь.png> — открыть окно,
     // снять скриншот и выйти. Используется для автоматической проверки.
     // MYCODEAPP_AUTOCLOSE=1 — закрыть таб за 1 с до скриншота (тест очистки).
+    // MYCODEAPP_DETACH=1 — отделить первую вкладку за 1,2 с (тест отдельного окна).
     // MYCODEAPP_SHOT_DELAY=<мс> — снимать позже (долгая загрузка), по умолчанию 2000.
     const QByteArray shotPath = qgetenv("MYCODEAPP_SHOT");
+    if (qgetenv("MYCODEAPP_DETACH") == "1" && !roots.isEmpty()) {
+        QObject *root = roots.first();
+        QTimer::singleShot(1200, root, [root]() {
+            QMetaObject::invokeMethod(root, "detachTab", Q_ARG(QVariant, QVariant(0)));
+        });
+    }
     if (qgetenv("MYCODEAPP_AUTOCLOSE") == "1" && !roots.isEmpty()) {
         if (auto *manager = roots.first()->findChild<QObject *>(QStringLiteral("manager"))) {
             QTimer::singleShot(1000, manager, [manager]() {

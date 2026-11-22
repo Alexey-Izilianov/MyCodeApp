@@ -1,5 +1,8 @@
 #include <QtTest>
+#include <QFile>
+#include <QTemporaryDir>
 #include "src/core/piecetable.h"
+#include "src/core/textbuffer.h" // streamSave
 
 using namespace core;
 
@@ -8,6 +11,7 @@ class PieceTableTest : public QObject {
 
 private slots:
     void resetAndRead();
+    void mappedEditsAndRetarget();
     void insertAtStart();
     void insertInsidePiece();
     void insertAtEnd();
@@ -259,6 +263,87 @@ void PieceTableTest::snapshotChunks()
     QCOMPARE(QString(midData, mid), QStringLiteral("llo"));
     QVERIFY(!snap.chunkAt(snap.length(), &length));
     QCOMPARE(length, 0);
+}
+
+void PieceTableTest::mappedEditsAndRetarget()
+{
+    QTemporaryDir dir;
+    // Строк больше kCheckpoint (16), CRLF, кириллица — как в реальном крупном файле
+    QByteArray raw = "\xEF\xBB\xBF";
+    for (int i = 0; i < 40; ++i)
+        raw += QByteArray::number(i) + " линия данные\r\n";
+    const QString path = dir.filePath("mapped_in.txt");
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write(raw);
+    }
+
+    PieceTable pt;
+    auto original = MappedText::open(path, true);
+    QVERIFY(original);
+    pt.reset(original);
+    QVERIFY(pt.baseHasBom());
+    const QString before = pt.toString();
+    QVERIFY(pt.isMapped());
+
+    // Правки поверх отображения: в начале, в середине куска, у конца, удаление строк
+    pt.insert(0, QStringLiteral("ШАПКА\n"));
+    pt.insert(pt.length(), QStringLiteral("хвост"));
+    pt.insert(60, QStringLiteral("[внутри]"));
+    pt.remove(0, 6); // удалить всю «ШАПКА\n» обратно
+    pt.verify();
+
+    // Тот же порядок операций — на строке
+    QString expected = before;
+    expected.insert(0, QStringLiteral("ШАПКА\n"));
+    expected.insert(expected.size(), QStringLiteral("хвост"));
+    expected.insert(60, QStringLiteral("[внутри]"));
+    expected.remove(0, 6);
+    QCOMPARE(pt.toString(), expected);
+    const QString joined = pt.toString();
+    for (int i = 0; i < pt.lineCount(); ++i) {
+        QCOMPARE(pt.lineLength(i), pt.line(i).size());
+        QCOMPARE(pt.offsetToLine(pt.lineStartOffset(i)), i);
+    }
+    QCOMPARE(joined.split(u'\n').size(), pt.lineCount());
+
+    // Снимок не должен ломаться при дальнейших правках
+    const auto snap = pt.snapshot();
+    pt.insert(0, QStringLiteral("+"));
+    QCOMPARE(snap.toString(), expected);
+    pt.remove(0, 1);
+    QCOMPARE(pt.toString(), expected);
+    pt.verify();
+
+    // Потоковая запись и ретаргет базы на новое отображение
+    const QString savedPath = dir.filePath("mapped_out.txt");
+    QString error;
+    QVERIFY2(streamSave(snap, Encoding::Utf8, LineEnding::Crlf, true, savedPath,
+                        {}, &error),
+             qPrintable(error));
+    // Содержимое файла совпадает с логическим текстом побайтово (BOM + CRLF)
+    QByteArray savedBytes;
+    {
+        QFile file(savedPath);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        savedBytes = file.readAll();
+    }
+    QString withCrlf = expected;
+    withCrlf.replace(u'\n', QStringLiteral("\r\n"));
+    const QByteArray expectedBytes = QByteArrayLiteral("\xEF\xBB\xBF") + withCrlf.toUtf8();
+    QCOMPARE(savedBytes, expectedBytes);
+
+    auto newBase = MappedText::open(savedPath, true);
+    QVERIFY(newBase);
+    pt.retargetBase(newBase);
+    pt.verify();
+    QCOMPARE(pt.toString(), expected);
+    const QStringList lines = expected.split(u'\n');
+    QCOMPARE(pt.lineCount(), lines.size());
+    for (int i = 0; i < pt.lineCount(); ++i)
+        QCOMPARE(pt.line(i), lines.at(i));
+    QCOMPARE(pt.snapshot().toString(), expected);
 }
 
 QTEST_GUILESS_MAIN(PieceTableTest)

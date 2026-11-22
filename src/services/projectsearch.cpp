@@ -2,23 +2,14 @@
 
 #include <QElapsedTimer>
 #include <QFile>
-#include <QStringDecoder>
 
 #include "src/core/textbuffer.h"
+#include "src/services/searchengine.h"
 #include "workspace.h"
 
 namespace {
 
 constexpr int kPreviewContext = 20; // символов до совпадения в превью
-
-QString decode(const QByteArray &bytes)
-{
-    if (bytes.startsWith("\xFF\xFE"))
-        return QStringDecoder(QStringConverter::Utf16LE)(bytes.mid(2));
-    if (bytes.startsWith("\xFE\xFF"))
-        return QStringDecoder(QStringConverter::Utf16BE)(bytes.mid(2));
-    return QString::fromUtf8(bytes);
-}
 
 QString previewHtml(const QString &line, int column, int length)
 {
@@ -49,13 +40,45 @@ ProjectSearch::~ProjectSearch()
 }
 
 QVector<ProjectSearch::Match> ProjectSearch::searchText(const QString &text, const QString &needle,
-                                                        Qt::CaseSensitivity cs, int limit)
+                                                        Qt::CaseSensitivity cs, int limit, int mode)
 {
+    if (mode == Regex) {
+        // Каждая строка сканируется отдельно: «^»/«$» — внутри строки;
+        // строки длиннее 1 МБ пропускаются (предохранитель, см. SearchEngine)
+        QRegularExpression re = SearchEngine::buildRegex(needle, cs == Qt::CaseSensitive, nullptr);
+        if (!re.isValid())
+            return {};
+        QVector<Match> matches;
+        const QStringList lines = text.split(u'\n');
+        for (int i = 0; i < lines.size() && matches.size() < limit; ++i) {
+            const QString &lineText = lines.at(i);
+            if (lineText.size() > (1 << 20))
+                continue;
+            // Хвостовой '\n' для «$»: «перед финальным \n» PCRE2 понимает,
+            // конец view — нет (см. SearchEngine)
+            const QString lineWithNl = lineText + u'\n';
+            auto it = re.globalMatchView(QStringView(lineWithNl));
+            while (it.hasNext()) {
+                const auto m = it.next();
+                const int start = int(m.capturedStart());
+                const int end = qMin(int(m.capturedEnd()), int(lineText.size()));
+                if (end <= start)
+                    continue;
+                matches.append({i, start, end - start,
+                                previewHtml(lineText, start, end - start)});
+                if (matches.size() >= limit)
+                    break;
+            }
+        }
+        return matches;
+    }
+
     QVector<Match> matches;
     int line = 0;
     qsizetype lineStart = 0;
+    qsizetype nextFrom = 0;
     for (qsizetype found = text.indexOf(needle, 0, cs); found >= 0 && matches.size() < limit;
-         found = text.indexOf(needle, found + needle.size(), cs)) {
+         found = text.indexOf(needle, nextFrom, cs)) {
         // Считаем переводы строк только между совпадениями — без разбиения текста на строки
         for (qsizetype nl = text.indexOf(u'\n', lineStart); nl >= 0 && nl < found;
              nl = text.indexOf(u'\n', lineStart)) {
@@ -67,22 +90,35 @@ QVector<ProjectSearch::Match> ProjectSearch::searchText(const QString &text, con
         if (lineText.endsWith(u'\r'))
             lineText.chop(1);
         const int column = int(found - lineStart);
-        matches.append({line, column, int(needle.size()), previewHtml(lineText, column, int(needle.size()))});
+        // WholeWord: кандидат на границе слова
+        const bool hit = mode == Plain || SearchEngine::wholeWordHit(text, int(found), int(needle.size()));
+        nextFrom = hit ? found + int(needle.size()) : found + 1;
+        if (hit)
+            matches.append({line, column, int(needle.size()),
+                            previewHtml(lineText, column, int(needle.size()))});
     }
     return matches;
 }
 
-void ProjectSearch::start(const QString &needle, bool caseSensitive)
+void ProjectSearch::start(const QString &needle, bool caseSensitive, int mode)
 {
     clear();
     if (needle.isEmpty() || m_root.isEmpty())
         return;
+    const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
+    if (mode == Regex) {
+        QString error;
+        SearchEngine::buildRegex(needle, caseSensitive, &error); // только проверка выражения
+        if (!error.isEmpty()) {
+            emit errorOccurred(error);
+            return;
+        }
+    }
     const int generation = ++m_generation;
     m_running = true;
     emit progressChanged();
 
-    const Qt::CaseSensitivity cs = caseSensitive ? Qt::CaseSensitive : Qt::CaseInsensitive;
-    m_pool.start([this, generation, needle, cs, root = m_root] {
+    m_pool.start([this, generation, needle, cs, mode, root = m_root] {
         auto cancelled = [&] { return m_generation != generation; };
         const QStringList files = Workspace::scanFiles(root, cancelled);
 
@@ -108,11 +144,12 @@ void ProjectSearch::start(const QString &needle, bool caseSensitive)
             if (file.size() > kMaxFileSize || !file.open(QIODevice::ReadOnly))
                 continue;
             const QByteArray bytes = file.readAll();
-            if (core::TextBuffer::looksBinary(bytes))
+            if (file.error() != QFileDevice::NoError || core::TextBuffer::looksBinary(bytes))
                 continue;
 
+            const QString text = core::TextBuffer::normalizeNewlines(core::TextBuffer::decode(bytes));
             FileResult result{file.fileName(), relative,
-                              searchText(decode(bytes), needle, cs, kMaxMatches - matches)};
+                              searchText(text, needle, cs, kMaxMatches - matches, mode)};
             if (!result.matches.isEmpty()) {
                 matches += int(result.matches.size());
                 batch.append(std::move(result));

@@ -118,6 +118,18 @@ const QChar *PieceTable::Snapshot::chunkAt(int offset, int *length) const
     return m_core.bufferOf(p).constData() + p.start + local;
 }
 
+void PieceTable::retargetBase(const std::shared_ptr<const MappedText> &base)
+{
+    if (!base)
+        return;
+    // Кусок базы всегда содержит тот же фрагмент файла — в новом файле это
+    // те же символы, начинающиеся с текущего логического смещения куска
+    for (int i = 0; i < m_core.pieces.size(); ++i)
+        if (m_core.pieces.at(i).bufferIndex == 0)
+            m_core.pieces[i].start = m_core.offsets.at(i);
+    m_core.mapped = base;
+}
+
 void PieceTable::reset(std::shared_ptr<const MappedText> mapped)
 {
     reset(QString());

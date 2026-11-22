@@ -53,16 +53,21 @@ public:
     int fileCount() const { return int(m_results.size()); }
     bool isTruncated() const { return m_truncated; }
 
-    Q_INVOKABLE void start(const QString &needle, bool caseSensitive);
+    enum Mode { Plain = 0, WholeWord = 1, Regex = 2 };
+    Q_ENUM(Mode)
+
+    Q_INVOKABLE void start(const QString &needle, bool caseSensitive, int mode = Plain);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void clear();
 
     static QVector<Match> searchText(const QString &text, const QString &needle, Qt::CaseSensitivity cs,
-                                     int limit);
+                                     int limit, int mode = Plain);
 
 signals:
     void rootPathChanged();
     void progressChanged();
+    // Regex: ошибка в выражении
+    void errorOccurred(const QString &message);
 
 private:
     void append(const QVector<FileResult> &batch, int filesDone, int filesTotal, bool truncated);

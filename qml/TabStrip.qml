@@ -5,10 +5,26 @@ import MyCodeApp
 Rectangle {
     id: strip
     required property DocumentManager manager
+    // true у отдельного окна: вместо «Открепить» — «Вернуть в главное окно»
+    property bool detached: false
     signal closeRequested(int index)
+    signal detachRequested(int index)   // открепить в отдельное окно
+    signal returnRequested(int index)   // вернуть вкладку в главное окно
     // Вкладку тянут мышью: точка — в координатах сцены
     signal tabDragged(int index, point point)
     signal tabDropped(int index, point point)
+
+    Menu {
+        id: contextMenu
+        property int index: -1
+        MenuItem {
+            text: strip.detached ? qsTr("Вернуть в главное окно") : qsTr("Открепить в отдельное окно")
+            onTriggered: strip.detached
+                         ? strip.returnRequested(contextMenu.index)
+                         : strip.detachRequested(contextMenu.index)
+        }
+        MenuItem { text: qsTr("Закрыть вкладку"); onTriggered: strip.closeRequested(contextMenu.index) }
+    }
 
     implicitHeight: 36
     color: Theme.editor
@@ -113,7 +129,7 @@ Rectangle {
                 anchors.fill: parent
                 z: -1
                 hoverEnabled: true
-                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                 preventStealing: true
                 property point pressedAt
                 property bool dragging: false
@@ -139,7 +155,10 @@ Rectangle {
                         return
                     if (event.button === Qt.MiddleButton)
                         strip.closeRequested(tab.index)
-                    else
+                    else if (event.button === Qt.RightButton) {
+                        contextMenu.index = tab.index
+                        contextMenu.popup()
+                    } else
                         strip.manager.activate(tab.index)
                 }
             }

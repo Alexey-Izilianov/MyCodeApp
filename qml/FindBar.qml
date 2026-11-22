@@ -2,28 +2,36 @@ import QtQuick
 import QtQuick.Controls.Basic
 import MyCodeApp
 
-// Плавающая строка поиска в правом верхнем углу редактора
+// Плавающая строка поиска в правом верхнем углу редактора.
+// Режимы: подстрока / целое слово / регэксп (SearchEngine::Mode по числу включённых).
+// Ошибка регэкспа приходит через onSearchError и гасится сообщением.
 Rectangle {
     id: bar
     required property EditorView editor
     property int current: 0
     property int total: 0
+    // 0 — plain, 1 — целое слово, 2 — регэксп
+    readonly property int mode: regexButton.checked ? 2 : wordButton.checked ? 1 : 0
 
     function open() {
         visible = true
         input.forceActiveFocus()
         input.selectAll()
         if (input.text !== "")
-            editor.find(input.text, caseButton.checked)
+            editor.find(input.text, caseButton.checked, mode)
     }
     function close() {
         visible = false
         editor.clearSearch()
         editor.forceActiveFocus()
     }
+    function run() {
+        if (input.text !== "")
+            editor.find(input.text, caseButton.checked, mode)
+    }
 
     visible: false
-    width: 380
+    width: 434
     height: 36
     radius: 6
     color: Theme.chrome
@@ -35,12 +43,16 @@ Rectangle {
             bar.current = current
             bar.total = total
         }
+        function onSearchError(message) {
+            if (bar.visible)
+                status.text = qsTr("Ошибка: %1").arg(message)
+        }
     }
 
     Timer {
         id: debounce
         interval: 200
-        onTriggered: bar.editor.find(input.text, caseButton.checked)
+        onTriggered: bar.run()
     }
 
     Row {
@@ -51,7 +63,7 @@ Rectangle {
 
         TextField {
             id: input
-            width: parent.width - status.width - 4 * 26 - 12
+            width: parent.width - status.width - 6 * 26 - 14
             height: parent.height
             leftPadding: 0
             placeholderText: qsTr("Найти")
@@ -63,7 +75,7 @@ Rectangle {
             verticalAlignment: TextInput.AlignVCenter
             background: null
 
-            onTextChanged: debounce.restart()
+            onTextChanged: status.text = "", debounce.restart()
             onAccepted: bar.editor.findNext()
             Keys.onEscapePressed: bar.close()
             Keys.onPressed: (event) => {
@@ -81,6 +93,7 @@ Rectangle {
             horizontalAlignment: Text.AlignRight
             rightPadding: 6
             font.pixelSize: Theme.smallFontSize
+            elide: Label.ElideRight
             color: input.text !== "" && bar.total === 0 ? Theme.error : Theme.faint
             text: input.text === "" ? ""
                 : bar.total === 0 ? qsTr("Нет совпадений")
@@ -94,6 +107,32 @@ Rectangle {
             checkable: true
             tip: qsTr("Учитывать регистр")
             onToggled: debounce.restart()
+        }
+        IconButton {
+            id: wordButton
+            anchors.verticalCenter: parent.verticalCenter
+            glyph: "ab"
+            checkable: true
+            tip: qsTr("Целое слово")
+            checked: false
+            onToggled: {
+                if (checked)
+                    regexButton.checked = false
+                debounce.restart()
+            }
+        }
+        IconButton {
+            id: regexButton
+            anchors.verticalCenter: parent.verticalCenter
+            glyph: ".*"
+            checkable: true
+            tip: qsTr("Регэксп")
+            checked: false
+            onToggled: {
+                if (checked)
+                    wordButton.checked = false
+                debounce.restart()
+            }
         }
         IconButton {
             anchors.verticalCenter: parent.verticalCenter

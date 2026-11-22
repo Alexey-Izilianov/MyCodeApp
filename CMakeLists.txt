@@ -1,9 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(MyCodeApp VERSION 1.0.2 LANGUAGES C CXX)
+project(MyCodeApp VERSION 1.0.3 LANGUAGES C CXX)
 include(GNUInstallDirs)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # для clangd
 
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Quick Gui Network Test LinguistTools)
@@ -56,6 +57,29 @@ FetchContent_Declare(tree_sitter_cmake
 FetchContent_MakeAvailable(tree_sitter tree_sitter_cpp tree_sitter_python tree_sitter_qmljs
                            tree_sitter_markdown tree_sitter_cmake)
 
+# Локальная модель ассистента: llama.cpp без GPU, только CPU. Библиотека —
+# статическая, API — include/llama.h; шаблон чата применяет llama_chat_apply_template.
+# Модель-файл (GGUF) не внутри библиотеки — ищется рядом с программой (см. localmodel).
+set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
+set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+set(GGML_NATIVE OFF CACHE BOOL "" FORCE) # пакет запускается и на других процессорах
+set(GGML_AVX2 ON CACHE BOOL "" FORCE)
+set(GGML_FMA ON CACHE BOOL "" FORCE)
+set(GGML_F16C ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+if(MINGW)
+    # В заголовках старого MinGW нет THREAD_POWER_THROTTLING_STATE — отключаем
+    # код «не парковать потоки» (Windows 11): модель работает и без него
+    add_compile_options(-D_WIN32_WINNT=0x0601)
+endif()
+FetchContent_Declare(llama_cpp
+    URL https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.tar.gz
+    URL_HASH SHA256=3f5f750e36326aea4d65c7623e7d597a33e395d65f4d76e5e0532171f252532b)
+FetchContent_MakeAvailable(llama_cpp)
+
 # Окно без системной рамки со своей строкой заголовка (прилипание к краям и Snap
 # Layouts сохраняются). Статически — без лишних DLL рядом с exe.
 set(QWINDOWKIT_BUILD_STATIC ON CACHE BOOL "" FORCE)
@@ -70,6 +94,9 @@ FetchContent_Declare(qwindowkit
 FetchContent_MakeAvailable(qwindowkit)
 
 add_library(ts_runtime STATIC ${tree_sitter_SOURCE_DIR}/lib/src/lib.c)
+if(MSVC)
+    set_target_properties(ts_runtime PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+endif()
 target_compile_definitions(ts_runtime PRIVATE _POSIX_C_SOURCE=200112L _DEFAULT_SOURCE _DARWIN_C_SOURCE)
 target_include_directories(ts_runtime PUBLIC
     ${tree_sitter_SOURCE_DIR}/lib/include
@@ -170,6 +197,7 @@ qt_add_qml_module(appMyCodeApp
         qml/GitPanel.qml qml/DiffView.qml qml/HistoryView.qml qml/Command.qml qml/SettingsDialog.qml qml/PluginsPage.qml qml/GoToLinePopup.qml qml/AboutDialog.qml
         qml/TitleBar.qml qml/WindowButton.qml qml/ActivityBar.qml qml/ActivityButton.qml
         qml/LineIcon.qml qml/IslandCorners.qml qml/AssistantPanel.qml qml/AssistantSettings.qml
+        qml/DetachedWindow.qml
         SOURCES src/gui/editerview.h src/gui/editerview.cpp
                 src/gui/minimap.h src/gui/minimap.cpp
                 src/services/workspace.h src/services/workspace.cpp
@@ -188,6 +216,7 @@ qt_add_qml_module(appMyCodeApp
                 src/services/documentmanager.h src/services/documentmanager.cpp
                 src/assistant/assistant.h src/assistant/assistant.cpp
                 src/assistant/chatmodel.h src/assistant/chatmodel.cpp
+                src/assistant/localmodel.h src/assistant/localmodel.cpp
 )
 
 # Служебные классы вне QML-модуля
@@ -205,7 +234,7 @@ target_sources(appMyCodeApp PRIVATE
 )
 
 target_link_libraries(appMyCodeApp
-    PRIVATE Qt6::Quick Qt6::Network spdlog::spdlog ${SYNTAX_LIBS} libgit2package QWindowKit::Quick
+    PRIVATE Qt6::Quick Qt6::Network spdlog::spdlog ${SYNTAX_LIBS} libgit2package QWindowKit::Quick llama
 )
 target_include_directories(appMyCodeApp SYSTEM PRIVATE ${libgit2_SOURCE_DIR}/include)
 target_compile_definitions(appMyCodeApp PRIVATE APP_VERSION="${PROJECT_VERSION}")
@@ -269,8 +298,19 @@ target_include_directories(test_searchengine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 target_link_libraries(test_searchengine PRIVATE Qt6::Test)
 add_test(NAME searchengine COMMAND test_searchengine)
 
+# Замеры производительности ядра (критерии ТЗ): bench_perf.exe [файл]
+# Не автотест — запускается руками при приёмке.
+qt_add_executable(bench_perf
+    src/core/piecetable.h src/core/piecetable.cpp src/core/mappedtext.h src/core/mappedtext.cpp
+    src/core/textbuffer.h src/core/textbuffer.cpp
+    src/services/searchengine.h src/services/searchengine.cpp
+    tests/bench_perf.cpp)
+target_include_directories(bench_perf PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(bench_perf PRIVATE Qt6::Core)
+
 qt_add_executable(test_piecetable
     src/core/piecetable.h src/core/piecetable.cpp src/core/mappedtext.h src/core/mappedtext.cpp
+    src/core/textbuffer.h src/core/textbuffer.cpp
     tests/piecetable_test.cpp)
 target_include_directories(test_piecetable PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_piecetable PRIVATE Qt6::Test)
@@ -329,9 +369,12 @@ add_test(NAME recovery COMMAND test_recovery)
 qt_add_executable(test_document
     src/core/document.h src/core/document.cpp
     ${CORE_SOURCES}
+    src/services/appsettings.h src/services/appsettings.cpp
+    src/services/documentmanager.h src/services/documentmanager.cpp
+    src/services/recovery.h src/services/recovery.cpp
     tests/document_test.cpp)
 target_include_directories(test_document PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(test_document PRIVATE Qt6::Test)
+target_link_libraries(test_document PRIVATE Qt6::Test Qt6::Qml spdlog::spdlog)
 add_test(NAME document COMMAND test_document)
 
 qt_add_executable(test_git ${VCS_SOURCES} tests/git_test.cpp)
@@ -360,7 +403,14 @@ target_include_directories(test_snippet PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_snippet PRIVATE Qt6::Test)
 add_test(NAME snippet COMMAND test_snippet)
 
-qt_add_executable(test_assistant src/assistant/prompting.h src/assistant/prompting.cpp tests/assistant_test.cpp)
+qt_add_executable(test_assistant src/assistant/prompting.h src/assistant/prompting.cpp src/services/appsettings.h src/services/appsettings.cpp tests/assistant_test.cpp)
 target_include_directories(test_assistant PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(test_assistant PRIVATE Qt6::Test)
+
+# Замер реальной генерации встроенной модели: не автотест (модель в пакете)
+if(TARGET llama)
+    qt_add_executable(bench_localmodel src/assistant/localmodel.h src/assistant/localmodel.cpp src/services/appsettings.h src/services/appsettings.cpp tests/bench_localmodel.cpp)
+    target_include_directories(bench_localmodel PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(bench_localmodel PRIVATE Qt6::Core llama)
+endif()
 add_test(NAME assistant COMMAND test_assistant)

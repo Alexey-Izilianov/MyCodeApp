@@ -38,7 +38,7 @@ if [ ! -f "$QT_PREFIX/lib/pkgconfig/xkbcommon-x11.pc" ]; then
     fetch https://xkbcommon.org/download/libxkbcommon-1.0.3.tar.xz
     step xkbcommon-configure python3 "$MESON" setup --prefix="$QT_PREFIX" --libdir=lib --buildtype=release \
         -Denable-docs=false -Denable-wayland=false -Denable-x11=true -Denable-xkbregistry=false \
-        -Denable-tools=false -Dxkb-config-root=/usr/share/X11/xkb -Dx-locale-root=/usr/share/X11/locale \
+        -Dxkb-config-root=/usr/share/X11/xkb -Dx-locale-root=/usr/share/X11/locale \
         libxkbcommon-1.0.3/build libxkbcommon-1.0.3
     step xkbcommon-build ninja -C libxkbcommon-1.0.3/build
     step xkbcommon-install ninja -C libxkbcommon-1.0.3/build install

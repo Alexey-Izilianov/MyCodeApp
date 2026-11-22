@@ -5,7 +5,8 @@
 param(
     [string]$BuildDir = "build/Release",
     [string]$OutDir = "dist",
-    [string]$QtBin = ""
+    [string]$QtBin = "",
+    [switch]$SkipModel # без GGUF: GitHub ограничивает вложения релиза 2 ГБ
 )
 $ErrorActionPreference = "Stop"
 
@@ -18,6 +19,20 @@ New-Item -ItemType Directory -Force "$stage/plugins", "$stage/data" | Out-Null
 Copy-Item "$BuildDir/appMyCodeApp.exe" $stage
 Copy-Item "$BuildDir/plugins/*.dll" "$stage/plugins"
 Set-Content "$stage/data/README.txt" "Папка data включает портативный режим: настройки, сессии и темы хранятся здесь. Удалите её, чтобы данные хранились в профиле пользователя."
+
+# Встроенная модель ассистента (GGUF): если рядом со сборкой есть models/ — едет в пакет.
+# Без неё ассистент работает через Ollama/сервер, а здесь просит файл модели
+$modelDir = Join-Path $BuildDir "models"
+if ($SkipModel) {
+    Write-Host "модель в пакет не кладём (-SkipModel)"
+} elseif (Test-Path $modelDir) {
+    New-Item -ItemType Directory -Force (Join-Path $stage "models") | Out-Null
+    Copy-Item "$modelDir/*.gguf" (Join-Path $stage "models")
+    $modelSize = [math]::Round(((Get-ChildItem "$stage/models/*.gguf" | Measure-Object Length -Sum).Sum / 1GB), 2)
+    Write-Host "модель в пакете: $modelSize ГБ"
+} else {
+    Write-Warning "models/*.gguf не найден в $BuildDir — ассистент в пакете будет без встроенной модели"
+}
 
 $windeployqt = if ($QtBin) { Join-Path $QtBin "windeployqt.exe" } else { (Get-Command windeployqt).Source }
 & $windeployqt --release --qmldir "$PSScriptRoot/.." --no-translations --compiler-runtime "$stage/appMyCodeApp.exe"

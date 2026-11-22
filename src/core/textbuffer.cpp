@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <iterator>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <utility>
 
 namespace core {
@@ -37,19 +39,21 @@ QString cp1251ToString(const QByteArray &raw)
     return out;
 }
 
-QByteArray stringToCp1251(const QString &s)
+std::optional<QByteArray> stringToCp1251(const QString &s)
 {
     QByteArray out(s.size(), Qt::Uninitialized);
     char *dst = out.data();
     for (const QChar c : s) {
         const char16_t u = c.unicode();
-        char byte = '?'; // символа нет в кодировке
+        char byte;
         if (u < 0x80)
             byte = char(u);
         else if (u >= 0x0410 && u <= 0x044F)
             byte = char(0xC0 + u - 0x0410);
         else if (const auto *it = std::find(std::begin(kCp1251High), std::end(kCp1251High), u); it != std::end(kCp1251High))
             byte = char(0x80 + (it - std::begin(kCp1251High)));
+        else
+            return std::nullopt;
         *dst++ = byte;
     }
     return out;
@@ -122,7 +126,13 @@ bool TextBuffer::load(const QString &path, QString *error)
             *error = file.errorString();
         return false;
     }
-    return loadFromData(file.readAll(), error);
+    const QByteArray raw = file.readAll();
+    if (file.error() != QFileDevice::NoError) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+    return loadFromData(raw, error);
 }
 
 bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
@@ -133,43 +143,37 @@ bool TextBuffer::loadFromData(const QByteArray &raw, QString *error)
         return false;
     }
 
-    m_encoding = detectEncoding(raw);
+    QString text = decode(raw, &m_encoding);
+    m_lineEnding = detectLineEnding(text);
+    m_pt.reset(normalizeNewlines(std::move(text)));
+    m_edits.clear();
+    m_editsOverflow = false;
+    return true;
+}
 
+QString TextBuffer::decode(const QByteArray &raw, Encoding *encoding)
+{
+    const Encoding detected = detectEncoding(raw);
+    if (encoding)
+        *encoding = detected;
     // Декодирование. Utf16 — с учётом BOM; Cp1251/Latin1 — однобайтовые.
-    QString text;
-    switch (m_encoding) {
+    switch (detected) {
     case Encoding::Utf16Le: {
         QStringDecoder dec(QStringConverter::Utf16LE);
-        text = dec(raw.mid(2));
-        break;
+        return dec(QByteArrayView(raw).sliced(2));
     }
     case Encoding::Utf16Be: {
         QStringDecoder dec(QStringConverter::Utf16BE);
-        text = dec(raw.mid(2));
-        break;
+        return dec(QByteArrayView(raw).sliced(2));
     }
     case Encoding::Cp1251:
-        text = cp1251ToString(raw);
-        break;
-    case Encoding::Latin1: {
-        text = QString::fromLatin1(raw);
-        break;
+        return cp1251ToString(raw);
+    case Encoding::Latin1:
+        return QString::fromLatin1(raw);
+    case Encoding::Utf8:
+        return QString::fromUtf8(raw);
     }
-    case Encoding::Utf8: {
-        text = QString::fromUtf8(raw);
-        break;
-    }
-    }
-
-    m_lineEnding = detectLineEnding(text);
-
-    text.replace("\r\n", "\n").replace('\r', '\n');
-    // Piece table хранит текст с '\n' как разделителями; строковый слой
-    // вырезает строки без терминальных переводов («hi\n» — 2 строки).
-    m_pt.reset(text);
-    m_edits.clear(); // новый текст: старые правки к нему не относятся
-    m_editsOverflow = false;
-    return true;
+    return {};
 }
 
 bool TextBuffer::loadMapped(const QString &path, const std::function<void(int)> &progress)
@@ -210,6 +214,13 @@ bool TextBuffer::save(const QString &path, QString *error)
     if (m_lineEnding != LineEnding::Lf)
         text.replace(u'\n', lineEndingString(m_lineEnding));
 
+    const auto encodingError = [this, error] {
+        if (error)
+            *error = QCoreApplication::translate("TextBuffer",
+                "Текст содержит символы, недоступные в %1. Выберите «Сохранить в UTF-8».")
+                         .arg(encodingName(m_encoding));
+        return false;
+    };
     QByteArray encoded;
     switch (m_encoding) {
     case Encoding::Utf16Le:
@@ -218,10 +229,16 @@ bool TextBuffer::save(const QString &path, QString *error)
     case Encoding::Utf16Be:
         encoded = QByteArray("\xFE\xFF", 2) + QStringEncoder(QStringConverter::Utf16BE)(text);
         break;
-    case Encoding::Cp1251:
-        encoded = stringToCp1251(text);
+    case Encoding::Cp1251: {
+        auto bytes = stringToCp1251(text);
+        if (!bytes)
+            return encodingError();
+        encoded = std::move(*bytes);
         break;
+    }
     case Encoding::Latin1:
+        if (std::any_of(text.cbegin(), text.cend(), [](QChar ch) { return ch.unicode() > 0xFF; }))
+            return encodingError();
         encoded = text.toLatin1();
         break;
     case Encoding::Utf8:
@@ -316,6 +333,100 @@ QVector<TextBuffer::Edit> TextBuffer::takeEdits(bool *overflow)
         *overflow = m_editsOverflow;
     m_editsOverflow = false;
     return std::exchange(m_edits, {});
+}
+
+bool streamSave(const PieceTable::Snapshot &text, Encoding encoding, LineEnding le,
+                bool bom, const QString &path,
+                const std::function<bool(int)> &progress, QString *error)
+{
+    // Крупные файлы хранятся в UTF-8/Latin-1 (условие отображения в память);
+    // остальные кодировки сюда не попадают, но кодирование на части умеет
+    // только два однобайтовых вида и UTF-8 — остальных отсеивает вызывающий.
+    if (encoding != Encoding::Utf8 && encoding != Encoding::Latin1) {
+        if (error)
+            *error = QCoreApplication::translate("TextBuffer",
+                "Кодировка %1 не редактируется в файлах больше 256 МБ")
+                         .arg(encodingName(encoding));
+        return false;
+    }
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+
+    const QString crlfBeforeNl = QStringLiteral("\r\n"); // вставляется перед '\n'
+    QStringEncoder encoder(encoding == Encoding::Utf8 ? QStringConverter::Utf8
+                                                      : QStringConverter::Latin1);
+    const qsizetype total = text.length();
+    int pos = 0;
+    qsizetype lastProgress = 0;
+    bool canceled = false;
+
+    const auto encodeAndWrite = [&](const QString &chunk, QString *error) -> bool {
+        if (encoding == Encoding::Latin1) {
+            if (std::any_of(chunk.cbegin(), chunk.cend(), [](QChar ch) { return ch.unicode() > 0xFF; })) {
+                if (error)
+                    *error = QCoreApplication::translate("TextBuffer",
+                        "Текст содержит символы, недоступные в %1. Выберите «Сохранить в UTF-8».")
+                                 .arg(encodingName(encoding));
+                return false;
+            }
+            return file.write(chunk.toLatin1()) == chunk.size();
+        }
+        const QByteArray bytes = encoder(chunk);
+        if (encoder.hasError()) {
+            if (error)
+                *error = QCoreApplication::translate("TextBuffer",
+                    "Текст содержит символы, недоступные в %1. Выберите «Сохранить в UTF-8».")
+                             .arg(encodingName(encoding));
+            return false;
+        }
+        return file.write(bytes) == bytes.size();
+    };
+
+    bool ok = true;
+    if (bom && file.write("\xEF\xBB\xBF") != 3) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+
+    while (pos < total) {
+        const int take = qMin(4 << 20, int(total - pos));
+        QString chunk = text.textAt(pos, take);
+        pos += take;
+        // В логическом тексте пар «\r\n» нет (нормализация при загрузке),
+        // '\n' заменяется на CRLF независимо от границ частей
+        if (le == LineEnding::Crlf)
+            chunk.replace(u'\n', crlfBeforeNl);
+        if (!encodeAndWrite(chunk, error)) {
+            ok = false;
+            break;
+        }
+        if (progress) {
+            const qsizetype done = pos;
+            if (done - lastProgress > total / 100) {
+                lastProgress = done;
+                if (!progress(int(done * 100 / total))) {
+                    canceled = true;
+                    ok = false;
+                    break;
+                }
+            }
+        }
+    }
+    if (!ok || !file.flush()) {
+        if (ok && error)
+            *error = file.errorString();
+        ok = false;
+    }
+    file.close();
+    if (!ok)
+        QFile::remove(path);
+    return ok;
 }
 
 bool TextBuffer::looksBinary(const QByteArray &data)

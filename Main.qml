@@ -124,6 +124,8 @@ ApplicationWindow {
     function saveSession() {
         if (workspace.rootPath === "")
             return
+        if (pendingSession && pendingSession.root === workspace.rootPath)
+            return
         const files = manager.tabs.map((tab, i) =>
             Object.assign({ path: tab.path }, editor.viewStateOf(manager.documentAt(i))))
         const right = split ? splitIndex() : -1
@@ -131,13 +133,28 @@ ApplicationWindow {
                                 split: right >= 0 ? manager.tabs[right].path : "",
                                 splitState: right >= 0 ? editor2.viewStateOf(splitDocument) : {} })
     }
+    property var pendingSession: null
+    property var pendingNavigation: null
+
     function restoreSession() {
         const session = workspace.loadSession()
+        const pending = new Map()
         for (const file of session.files ?? []) {
             const index = manager.openPath(file.path)
             if (index >= 0)
                 editor.setViewStateOf(manager.documentAt(index), file)
+            else {
+                const key = manager.pendingOpenKey(file.path)
+                if (key)
+                    pending.set(key, file)
+            }
         }
+        pendingSession = pending.size > 0 ? { session, pending, root: workspace.rootPath } : null
+        if (!pendingSession)
+            selectSessionTabs(session)
+    }
+
+    function selectSessionTabs(session) {
         const current = manager.tabs.findIndex(tab => tab.path === session.current)
         if (current >= 0)
             manager.activate(current)
@@ -167,22 +184,32 @@ ApplicationWindow {
 
     // Открывается в половине с фокусом; правая не меняет вкладку левой. line < 0 — курсор не трогать
     function openAt(path, line, column, length) {
-        if (activeEditor === editor2) {
-            const left = manager.currentIndex
-            const index = manager.openPath(path)
-            if (index >= 0) {
-                if (left >= 0 && left !== index)
-                    manager.activate(left)
-                splitDocument = manager.documentAt(index)
-                if (line >= 0)
-                    editor2.goTo(line, column, length)
-            }
-            editor2.forceActiveFocus()
-            return
+        const place = { line, column, length, right: activeEditor === editor2,
+                        left: manager.currentDocument, root: workspace.rootPath }
+        const index = manager.openPath(path)
+        pendingNavigation = null
+        if (index >= 0) {
+            navigateToOpened(place, manager.documentAt(index), index)
+        } else {
+            const key = manager.pendingOpenKey(path)
+            if (key)
+                pendingNavigation = { key, place }
         }
-        if (manager.openPath(path) >= 0 && line >= 0)
-            editor.goTo(line, column, length)
-        editor.forceActiveFocus()
+    }
+
+    function navigateToOpened(place, document, index) {
+        const view = place.right ? editor2 : editor
+        if (place.right) {
+            const left = manager.indexOfDocument(place.left)
+            if (left >= 0 && left !== index)
+                manager.activate(left)
+            splitDocument = document
+        } else {
+            manager.activate(index)
+        }
+        if (place.line >= 0)
+            view.goTo(place.line, place.column, place.length)
+        view.forceActiveFocus()
     }
 
     function openSettings(page) {
@@ -194,9 +221,47 @@ ApplicationWindow {
         if (index < 0)
             return
         if (manager.isDirty(index))
-            closeDialog.ask(index, manager.tabs[index].name)
+            closeDialog.ask(manager.documentAt(index), manager.tabs[index].name)
         else
             manager.close(index)
+    }
+
+    // Отдельные окна (отделённые вкладки). Пересылают документы обратно через onReturnDocument
+    Component {
+        id: detachedWindowComponent
+        DetachedWindow {
+            onReturnDocument: (docMoved, editorState) => window.adoptDetached(docMoved, editorState)
+        }
+    }
+    function detachTab(index) {
+        if (index < 0)
+            return
+        const doc = manager.documentAt(index)
+        if (!doc)
+            return
+        // Состояние берём из своей половины до её закрытия
+        const state = splitDocument === doc ? editor2.viewStateOf(doc) : editor.viewStateOf(doc)
+        // Разделённый экран с этим файлом закрываем — документ уезжает
+        if (splitDocument === doc)
+            splitDocument = null
+        // Текущую вкладку забираем — активируется соседняя
+        if (index === manager.currentIndex && manager.tabs.length > 1)
+            manager.activate(index > 0 ? index - 1 : index + 1)
+        const win = detachedWindowComponent.createObject(window, { workspace: workspace })
+        if (!win) {
+            manager.adopt(doc) // окно не создалось — вкладка остаётся здесь
+            return
+        }
+        const moved = manager.takeDocument(index)
+        if (moved)
+            win.openDocument(moved, state)
+        win.raise()
+        win.requestActivate()
+    }
+    function adoptDetached(document, state) {
+        manager.adopt(document) // станет текущей вкладкой главного окна
+        editor.setViewStateOf(document, state)
+        editor.forceActiveFocus()
     }
 
     function cycleTab(step) {
@@ -208,9 +273,28 @@ ApplicationWindow {
     DocumentManager {
         id: manager
         objectName: "manager"
-        onErrorOccurred: (message) => console.warn(message)
+        onErrorOccurred: (message) => window.showDocumentError(message)
         Component.onCompleted: restoreUnsaved() // несохранённое после сбоя или выхода
         onExternalChange: (index, name) => reloadDialog.ask(index, name)
+        onAsyncOpenFinished: (key, document, index) => {
+            const restoring = window.pendingSession
+            if (restoring && restoring.pending.has(key)) {
+                if (document && restoring.root === workspace.rootPath)
+                    editor.setViewStateOf(document, restoring.pending.get(key))
+                restoring.pending.delete(key)
+                if (restoring.pending.size === 0) {
+                    window.pendingSession = null
+                    if (restoring.root === workspace.rootPath)
+                        window.selectSessionTabs(restoring.session)
+                }
+            }
+            const navigation = window.pendingNavigation
+            if (navigation && navigation.key === key) {
+                window.pendingNavigation = null
+                if (document && navigation.place.root === workspace.rootPath)
+                    window.navigateToOpened(navigation.place, document, index)
+            }
+        }
     }
 
     ShellIntegration { id: shell }
@@ -295,7 +379,7 @@ ApplicationWindow {
         assistant.explainProblem(view.filePath, here[0].startLine, here[0].message)
     }
     function insertAssistantCode(code) {
-        if (!hasDocument || activeEditor.readOnly || code === "")
+        if (!hasDocument || activeEditor.readOnly || activeEditor.saving || code === "")
             return
         activeEditor.replaceSelection(code)
         activeEditor.forceActiveFocus()
@@ -363,6 +447,19 @@ ApplicationWindow {
                     enabled: window.hasDocument
                     onTriggered: window.activeEditor.save()
                 }
+                Action {
+                    text: qsTr("Сохранить в UTF-8")
+                    enabled: window.activeEditor.document !== null && !window.activeEditor.readOnly && !window.activeEditor.saving
+                             && window.activeEditor.encoding !== "UTF-8"
+                    onTriggered: window.activeEditor.saveAsUtf8()
+                }
+                AppMenu {
+                    title: qsTr("Сохранить с окончаниями строк")
+                    enabled: window.activeEditor.document !== null && !window.activeEditor.readOnly && !window.activeEditor.saving
+                    Action { text: "LF"; enabled: window.activeEditor.lineEnding !== text; onTriggered: window.activeEditor.saveWithLineEnding(text) }
+                    Action { text: "CRLF"; enabled: window.activeEditor.lineEnding !== text; onTriggered: window.activeEditor.saveWithLineEnding(text) }
+                    Action { text: "CR"; enabled: window.activeEditor.lineEnding !== text; onTriggered: window.activeEditor.saveWithLineEnding(text) }
+                }
                 AppMenuSeparator {}
                 Command {
                     command: "file.closeTab"
@@ -418,14 +515,14 @@ ApplicationWindow {
                 Command { command: "code.references"; text: qsTr("Найти ссылки"); defaultShortcut: "Shift+F12"; enabled: window.hasDocument; onTriggered: lsp.findReferences(window.activeEditor) }
                 Command { command: "code.back"; text: qsTr("Назад"); defaultShortcut: "Alt+Left"; onTriggered: window.goBack() }
                 AppMenuSeparator {}
-                Command { command: "code.rename"; text: qsTr("Переименовать символ"); defaultShortcut: "F2"; enabled: window.hasDocument && !window.activeEditor.readOnly; onTriggered: renamePopup.show() }
+                Command { command: "code.rename"; text: qsTr("Переименовать символ"); defaultShortcut: "F2"; enabled: window.hasDocument && !window.activeEditor.readOnly && !window.activeEditor.saving; onTriggered: renamePopup.show() }
                 Command {
                     command: "code.userSnippets"
                     text: qsTr("Свои сниппеты для этого языка…")
                     enabled: window.hasDocument
                     onTriggered: window.openAt(SnippetStore.userFile(window.activeEditor.language), 0, 0, 0)
                 }
-                Command { command: "code.format"; text: qsTr("Форматировать документ"); defaultShortcut: "Shift+Alt+F"; enabled: window.hasDocument && !window.activeEditor.readOnly; onTriggered: lsp.format(window.activeEditor) }
+                Command { command: "code.format"; text: qsTr("Форматировать документ"); defaultShortcut: "Shift+Alt+F"; enabled: window.hasDocument && !window.activeEditor.readOnly && !window.activeEditor.saving; onTriggered: lsp.format(window.activeEditor) }
                 AppMenuSeparator {}
                 Command { command: "view.problems"; text: qsTr("Проблемы"); defaultShortcut: "Ctrl+Shift+M"; onTriggered: bottomPanel.visible && bottomPanel.mode === "problems" ? bottomPanel.visible = false : bottomPanel.show("problems") }
             }
@@ -442,7 +539,10 @@ ApplicationWindow {
                     command: "git.stageFile"
                     text: qsTr("Добавить файл в индекс")
                     enabled: window.hasDocument && git.available
-                    onTriggered: { window.activeEditor.save(); git.stage([window.activeEditor.filePath]) }
+                    onTriggered: {
+                        if (window.activeEditor.save())
+                            git.stage([window.activeEditor.filePath])
+                    }
                 }
                 Command { command: "git.refresh"; text: qsTr("Обновить состояние"); enabled: git.available; onTriggered: git.refresh() }
             }
@@ -591,7 +691,14 @@ ApplicationWindow {
         onTabDragged: (index, point) => dropZone.track(index, point)
         onTabDropped: (index, point) => {
             dropZone.track(index, point)
-            if (dropZone.hot)
+            // Точка — в координатах окна; (-1,-1) — отмена перетаскивания.
+            // Отпустили за границей окна — открепить в отдельное окно
+            const cancels = point.x < 0 && point.y < 0
+            const inside = point.x >= 0 && point.x < window.width
+                           && point.y >= 0 && point.y < window.height
+            if (!cancels && !inside)
+                window.detachTab(index)
+            else if (dropZone.hot)
                 window.openSplit(manager.documentAt(index), index)
             dropZone.index = -1
         }
@@ -609,7 +716,7 @@ ApplicationWindow {
         wordWrap: window.wordWrap
         focus: true
         onActiveFocusChanged: if (activeFocus) window.activeEditor = editor
-        onErrorOccurred: (message) => console.warn(message)
+        onErrorOccurred: (message) => window.showDocumentError(message)
         onDocumentChanged: {
             forceActiveFocus()
             window.updateDiagnostics()
@@ -741,7 +848,7 @@ ApplicationWindow {
         document: window.splitDocument
         wordWrap: window.wordWrap
         onActiveFocusChanged: if (activeFocus) window.activeEditor = editor2
-        onErrorOccurred: (message) => console.warn(message)
+        onErrorOccurred: (message) => window.showDocumentError(message)
         onDocumentChanged: window.updateDiagnostics()
         Keys.onPressed: (event) => window.editorKey(editor2, event)
         onTextTyped: (text) => window.editorTyped(editor2, text)
@@ -969,8 +1076,22 @@ ApplicationWindow {
 
     CloseDialog {
         id: closeDialog
-        onSaveRequested: (index) => { manager.save(index); manager.close(index) }
-        onDiscardRequested: (index) => manager.close(index)
+        onSaveRequested: (document) => manager.saveAndClose(document)
+        onDiscardRequested: (document) => manager.closeDocument(document)
+    }
+
+    function showDocumentError(message) {
+        documentErrorDialog.text = message
+        documentErrorDialog.open()
+    }
+    Connections {
+        target: workspace
+        function onSessionSaveFailed(message) { statusBar.flash(message) }
+    }
+
+    MessageDialog {
+        id: documentErrorDialog
+        title: qsTr("Ошибка файла")
     }
 
     FileDialog {

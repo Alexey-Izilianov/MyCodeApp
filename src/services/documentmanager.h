@@ -45,13 +45,21 @@ public:
 
     Q_INVOKABLE int open(const QUrl &url);
     Q_INVOKABLE int openPath(const QString &path) { return open(QUrl::fromLocalFile(path)); }
+    Q_INVOKABLE QString pendingOpenKey(const QString &path) const;
     // Открыть файлы с несохранёнными правками из журнала (сбой, горячий выход)
     Q_INVOKABLE int restoreUnsaved();
     Q_INVOKABLE void close(int index);
+    Q_INVOKABLE void closeDocument(QObject *document);
+    Q_INVOKABLE void saveAndClose(QObject *document);
+    // Открепление вкладки: отдать документ в другое окно (владелец меняется,
+    // документ не удаляется) и принять чужой документ к себе
+    Q_INVOKABLE QObject *takeDocument(int index);
+    Q_INVOKABLE void adopt(QObject *document);
     Q_INVOKABLE void activate(int index);
     Q_INVOKABLE bool isDirty(int index) const;
     Q_INVOKABLE QObject *documentAt(int index) const;
-    Q_INVOKABLE void save(int index);
+    Q_INVOKABLE int indexOfDocument(QObject *document) const;
+    Q_INVOKABLE bool save(int index);
     // Ответ на externalChange: перечитать с диска или оставить свои правки
     Q_INVOKABLE void reloadFromDisk(int index);
     Q_INVOKABLE void keepLocal(int index);
@@ -61,13 +69,14 @@ signals:
     void tabsChanged();
     void errorOccurred(const QString &message);
     void loadingChanged();
+    void asyncOpenFinished(const QString &key, QObject *document, int index);
     void loadPercentChanged();
     // Файл изменили снаружи, а в редакторе есть несохранённые правки
     void externalChange(int index, const QString &name);
 
 private:
-    void finishAsyncLoad(core::Document *doc, bool ok);
-    void publish(core::Document *doc);
+    void finishAsyncLoad(core::Document *doc, const QString &key, bool ok);
+    void publish(core::Document *doc, bool restoreJournal = true);
     void checkDisk();
 
     RecoveryManager *m_recovery = nullptr;

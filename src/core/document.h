@@ -1,11 +1,13 @@
 #pragma once
 
-#include <QAtomicInteger>
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QVector>
+#include <atomic>
+#include <memory>
+#include "mappedtext.h"
 #include "textbuffer.h"
 
 namespace core {
@@ -35,19 +37,34 @@ public:
     enum class EditKind { Typing, Other };
 
     explicit Document(QObject *parent = nullptr);
+    ~Document() override;
+
+    // Порог отображения в память вместо полного чтения; для тестов — чтобы
+    // получить крупный путь на маленьком файле
+    static void setMappedThreshold(qint64 bytes) { s_mappedThreshold = bytes; }
 
     bool load(const QString &path);
     // Чтение и декодирование в QThreadPool; готовность — loadFinished
     bool loadAsync(const QString &path);
-    bool isLoading() const { return m_loading.loadRelaxed(); }
+    bool isLoading() const { return m_loading; }
 
     bool save(QString *error = nullptr);
+    bool saveAsUtf8(QString *error);
+    bool saveWithLineEnding(LineEnding ending, QString *error);
     bool saveAs(const QString &path, QString *error = nullptr);
+    // Потоковое сохранение крупного файла (отображён в память): запись в temp
+    // в фоновой потоке, затем переименование и перенацеливание кусков.
+    // false — обычный файл (сохранять синхронно) или уже идёт сохранение
+    bool saveAsync(QString *error = nullptr);
+    bool saveAsyncAt(const QString &target, bool sameFile, QString *error = nullptr);
+    void cancelSave();
+    bool isSaving() const { return m_saving; }
 
     QString filePath() const { return m_filePath; }
     QString displayName() const;
     bool isDirty() const { return m_dirty; }
-    bool isReadOnly() const { return m_virtual || m_buffer.isMapped(); }
+    quint64 revision() const { return m_revision; }
+    bool isReadOnly() const { return m_virtual; }
     // Текст не с диска (просмотр изменений): только чтение, путь — для подсветки.
     // Буфер готовится в фоне, сюда передаётся целиком
     void loadVirtual(TextBuffer buffer, const QString &path);
@@ -91,16 +108,22 @@ public:
 
 signals:
     void dirtyChanged(bool dirty);
+    void fileFormatChanged();
     // Каждое изменение буфера (правка, undo, redo) — для журнала восстановления
     void edited(int offset, int count, const QString &text);
     void loadProgress(int percent); // 0..100
     void loadFinished(bool ok);
     void reloaded();
+    // Потоковое сохранение крупного файла
+    void saveProgress(int percent);
+    void saveStateChanged(bool saving);
+    void saveFinished(bool ok, const QString &error);
     // После каждой правки (replace, undo, redo, восстановление) — её журнал для всех видов
     // документа: свёртка, перенос, tree-sitter. overflow — журнал переполнился, пересчитать всё
     void changed(const QVector<TextBuffer::Edit> &edits, bool overflow);
 
 private:
+    using MappedSharedPtr = std::shared_ptr<const MappedText>;
     struct Change {
         int offset = 0;
         QString removed;
@@ -121,11 +144,18 @@ private:
     void markClean();
     void stampDisk();
     void updateDirty();
+    // Завершение saveAsync в GUI-потоке: temp уже записан и отсканирован
+    void finishSave(bool ok, const QString &error, const MappedSharedPtr &newBase,
+                    const QString &temp, const QString &target, bool sameFile);
 
     QString m_filePath;
     TextBuffer m_buffer;
-    QAtomicInteger<bool> m_loading{false};
+    quint64 m_revision = 0;
+    bool m_loading = false;
     bool m_virtual = false;
+    bool m_saving = false;
+    std::shared_ptr<std::atomic_bool> m_saveCancel;
+    static qint64 s_mappedThreshold;
 
     QVector<Step> m_history;
     int m_index = 0;      // сколько шагов истории применено

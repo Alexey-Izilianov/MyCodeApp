@@ -5,13 +5,13 @@ import MyCodeApp
 // Закрытие вкладки с несохранёнными изменениями
 Popup {
     id: dialog
-    property int tabIndex: -1
+    property QtObject document: null
     property string fileName: ""
-    signal saveRequested(int index)
-    signal discardRequested(int index)
+    signal saveRequested(QtObject document)
+    signal discardRequested(QtObject document)
 
-    function ask(index, name) {
-        tabIndex = index
+    function ask(documentToClose, name) {
+        document = documentToClose
         fileName = name
         open()
     }
@@ -53,7 +53,7 @@ Popup {
             spacing: 8
             FlatButton {
                 text: qsTr("Не сохранять")
-                onClicked: { dialog.close(); dialog.discardRequested(dialog.tabIndex) }
+                onClicked: { dialog.close(); dialog.discardRequested(dialog.document) }
             }
             FlatButton {
                 text: qsTr("Отмена")
@@ -62,7 +62,7 @@ Popup {
             FlatButton {
                 primary: true
                 text: qsTr("Сохранить")
-                onClicked: { dialog.close(); dialog.saveRequested(dialog.tabIndex) }
+                onClicked: { dialog.close(); dialog.saveRequested(dialog.document) }
             }
         }
     }

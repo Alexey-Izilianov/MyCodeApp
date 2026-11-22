@@ -18,6 +18,21 @@ rm -rf "$APP/include" "$APP/lib/cmake" "$APP/lib/pkgconfig" "$APP"/lib/*.a
 # Компилятор новее системного: его libstdc++ и libgcc едут с программой
 cp -L "$($CXX -print-file-name=libstdc++.so.6)" "$($CXX -print-file-name=libgcc_s.so.1)" "$APP/lib/"
 
+# Встроенная модель ассистента: GGUF кладём рядом с программой. Ищем в
+# /build/models и рядом с исходниками; без неё пакет соберётся с предупреждением
+model=""
+shopt -s nullglob
+for candidate in "$ROOT/models/"*.gguf "${SRC%/}/../models/"*.gguf; do
+    [ -s "$candidate" ] && { model=$candidate; break; }
+done
+shopt -u nullglob
+if [ -n "$model" ]; then
+    mkdir -p "$APP/models"
+    step model-cp cp "$model" "$APP/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+else
+    echo "!! встроенной модели нет (/build/models/*.gguf и рядом с SRC) — пакет уйдёт без неё"
+fi
+
 install -Dm644 "$SRC/assets/icon/app-256.png" "$STAGE/usr/share/icons/hicolor/256x256/apps/mycodeapp.png"
 install -Dm644 "$SRC/assets/icon/app.svg" "$STAGE/usr/share/icons/hicolor/scalable/apps/mycodeapp.svg"
 install -Dm644 "$HERE/mycodeapp.desktop" "$STAGE/usr/share/applications/mycodeapp.desktop"
@@ -30,10 +45,14 @@ declare -A renamed=(
     [libgl1-mesa-glx]="libgl1 | libgl1-mesa-glx" [libgl1]="libgl1 | libgl1-mesa-glx"
     [libegl1-mesa]="libegl1 | libegl1-mesa" [libegl1]="libegl1 | libegl1-mesa"
     [libxcb-util0]="libxcb-util1 | libxcb-util0" [libxcb-util1]="libxcb-util1 | libxcb-util0"
-    [libc6]="libc6 (>= 2.24)"
 )
 export LC_ALL=C # readelf и dpkg в русской локали пишут не «Shared library»
 mapfile -d '' elves < <(find "$APP" -type f -exec sh -c 'head -c4 "$1" | grep -q ELF' _ {} \; -print0)
+glibc_min=$(readelf --version-info "${elves[@]}" 2>/dev/null |
+    sed -n 's/.*Name: GLIBC_\([0-9][0-9.]*\) .*/\1/p' | sort -V | tail -1)
+if [ -n "$glibc_min" ]; then
+    renamed[libc6]="libc6 (>= $glibc_min)"
+fi
 needed=$(readelf -d "${elves[@]}" 2>/dev/null | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | sort -u)
 libraries=$(/sbin/ldconfig -p) # один раз: awk с exit в конвейере обрывал ldconfig (SIGPIPE + pipefail)
 packages=()
@@ -48,14 +67,15 @@ done
 depends=$(printf '%s\n' "${packages[@]}" | sort -u | while read -r p; do echo "${renamed[$p]:-$p}"; done | paste -sd, | sed 's/,/, /g')
 
 # ЗПС (замкнутая программная среда): с SIGN_KEY=<id ключа GPG> все ELF пакета подписываются
-# bsign. Ключ — без пароля или с паролем в gpg-agent; открытый ключ администратор кладёт
+# bsign. Используйте ключ ГОСТ, который поддерживает целевая ЗПС. Ключ — без
+# пароля или с паролем в gpg-agent; открытый ключ администратор кладёт
 # в /etc/digsig/keys (см. docs/operator-guide.md). Без SIGN_KEY пакет не подписан
 if [ -n "${SIGN_KEY:-}" ]; then
     printf '%s\n' "${elves[@]}" > "$LOGS/sign-files.txt"
     step sign bsign -N -s -E -f "$LOGS/sign-files.txt" --pgoptions="--batch --default-key=$SIGN_KEY"
     # bsign -V сверяет только с ключами, загруженными в систему, — здесь лишь наличие подписи
     for elf in "${elves[@]}"; do # без конвейера в grep -q: SIGPIPE + pipefail дают ложный провал
-        [[ $(bsign -w "$elf" 2>/dev/null) == *$'\nsignature:'* ]] || { echo "!! не подписан: $elf"; exit 1; }
+        [[ $(bsign -E -w "$elf" 2>/dev/null) == *$'\nsignature:'* ]] || { echo "!! не подписан: $elf"; exit 1; }
     done
     echo "== подписано ключом $SIGN_KEY: ${#elves[@]} файлов"
 fi
