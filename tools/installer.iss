@@ -1,12 +1,12 @@
 ﻿; Установщик MyCodeApp для Windows (Inno Setup 6).
 ; Собирается из той же папки, что и портативный ZIP (tools/package.ps1):
-;   ISCC.exe /DMyAppVersion=1.0.3 /DStageDir=<...>\dist\MyCodeApp-1.0.3-win64 ^
+;   ISCC.exe /DMyAppVersion=1.0.4 /DStageDir=<...>\dist\MyCodeApp-1.0.4-win64 ^
 ;            /DOutputDir=<...>\dist tools\installer.iss
 ; Папка data из портативной сборки не ставится: в Program Files она недоступна
 ; для записи, поэтому настройки пойдут в профиль пользователя (обычный режим).
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.3"
+  #define MyAppVersion "1.0.4"
 #endif
 #ifndef StageDir
   #define StageDir "..\dist\MyCodeApp-" + MyAppVersion + "-win64"

@@ -1,6 +1,6 @@
 # MyCodeApp
 
-![version](https://img.shields.io/badge/version-1.0.3-blue)
+![version](https://img.shields.io/badge/version-1.0.4-blue)
 ![Qt](https://img.shields.io/badge/Qt-6.11-green)
 ![C++](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![CI](https://github.com/Alexey-Izilianov/MyCodeApp/actions/workflows/ci.yml/badge.svg)
@@ -172,7 +172,7 @@ build/Release/appMyCodeApp.exe [--profile имя] [--software] [файл|пап�
 Установщик Windows (Inno Setup 6): из той же папки, что делает `package.ps1`:
 ```powershell
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-  /DMyAppVersion=1.0.3 /DStageDir="$PWD\dist\MyCodeApp-1.0.3-win64" /DOutputDir="$PWD\dist" `
+  /DMyAppVersion=1.0.4 /DStageDir="$PWD\dist\MyCodeApp-1.0.4-win64" /DOutputDir="$PWD\dist" `
   tools\installer.iss
 ```
 → `dist/MyCodeApp-<версия>-win64-setup.exe`. Папка `data` в установщик не
