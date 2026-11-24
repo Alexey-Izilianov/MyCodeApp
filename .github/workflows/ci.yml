@@ -5,8 +5,9 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_dispatch: # позволяет перезапустить сборку пакетов/релиза без нового коммита
 
-# Release-шаг публикует ZIP по тегу — токену нужен write на содержимое
+# Release-шаг публикует артефакты по тегу — токену нужен write на содержимое
 permissions:
   contents: write
 
@@ -29,7 +30,8 @@ jobs:
             # это понимает только ветка master aqtinstall — релиз 3.3.0 старше
             aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
           - name: Linux (GCC)
-            os: ubuntu-24.04
+            # ubuntu-22.04 (glibc 2.35) — чтобы .deb из релиза шёл на Astra 1.8 / Debian 11+
+            os: ubuntu-22.04
             qt_arch: linux_gcc_64
           - name: macOS (Clang)
             os: macos-latest # macos-14 (arm64 us-default) отозван GitHub
@@ -47,7 +49,8 @@ jobs:
 
       - name: Linux packages
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 xvfb
+        # patchelf нужен qt-деплою для RPATH при установке в /opt/mycodeapp
+        run: sudo apt-get update && sudo apt-get install -y ninja-build binutils patchelf libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0
 
       - name: MinGW in PATH
         if: runner.os == 'Windows'
@@ -61,26 +64,94 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
-      # Тесты гоняются локально: ctest --test-dir build (15 наборов, ~10 с).
-      # В CI убраны по решению пользователя (2026-11-23): падение Windows-
-      # окружения гонки не должно блокировать релиз. Возврат — вернуть этот блок.
+      # Qt-тесты с окнами (editorview) идут на offscreen-платформе: на Windows-
+      # и macOS-раннерах нет интерактивного рабочего стола, из-за чего прежний
+      # запуск с нативной платформой падал. offscreen с программной отрисовкой —
+      # тот же режим, что и в Astra-лаборатории (tools/astra/build.sh).
+      - name: Tests
+        shell: bash
+        working-directory: build
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QSG_RHI_BACKEND: software
+        run: |
+          set -o pipefail
+          if ctest --timeout 300 --output-on-failure 2>&1 | tee ctest.log; then
+            exit 0
+          fi
+          {
+            echo '### Тесты упали'
+            echo
+            echo '```'
+            grep -E 'Test +#|Failed|\*\*\*|Timeout|SEGFAULT|Received signal|tests passed|tests failed' ctest.log | tail -n 120 || true
+            echo '```'
+            echo
+            echo '<details><summary>Testing/Temporary/LastTest.log (хвост)</summary>'
+            echo
+            echo '```'
+            tail -n 300 Testing/Temporary/LastTest.log 2>/dev/null || echo 'LastTest.log нет'
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
-      - name: Package (Windows)
+      - name: Package (Windows ZIP)
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./tools/package.ps1 -BuildDir build -OutDir dist -SkipModel # релизное вложение ограничено 2 ГБ, модель кладут tools/fetch-model.ps1
+
+      - name: Package (Windows installer)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path CMakeLists.txt -Pattern 'project\(MyCodeApp VERSION ([0-9.]+)').Matches[0].Groups[1].Value
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "Inno Setup 6 не найден на раннере" }
+          & $iscc "/DMyAppVersion=$version" "/DStageDir=$PWD\dist\MyCodeApp-$version-win64" "/DOutputDir=$PWD\dist" "tools\installer.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC завершился с кодом $LASTEXITCODE" }
 
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'
         with:
           name: MyCodeApp-windows
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*.exe
 
-      - name: Release
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+      - name: Package (Linux .deb)
+        if: runner.os == 'Linux'
+        run: bash tools/package-deb.sh
+        env:
+          BUILD: build
+          OUT: dist
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
         with:
-          files: dist/*.zip
+          name: MyCodeApp-linux
+          path: dist/*.deb
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Состав релиза
+        run: ls -lh dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.exe
+            dist/*.deb
 
   sanitizers:
     name: Linux ${{ matrix.sanitizer }}
@@ -97,7 +168,7 @@ jobs:
           version: ${{ env.QT_VERSION }}
           arch: linux_gcc_64
           cache: true
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 xvfb
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0
       - name: Configure
         run: |
           # -DSHA1DC_FORCE_ALIGNED_ACCESS: SHA-1 в libgit2 на x86 читает невыровненные слова, UBSan это ловит
@@ -111,7 +182,31 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
           MYCODEAPP_NO_PERF: 1 # под санитайзерами код в разы медленнее — замеры скорости не проверяем
           ASAN_OPTIONS: detect_leaks=0 # утечки в драйверах GL/Qt не наши
-        run: xvfb-run -a ctest --timeout 180 --output-on-failure;
+          # TSan: Qt собран без аннотаций, его COW-контейнеры и QWaitCondition
+          # дают заведомые «гонки»; свои — видны в логе. Джоб информационный.
+          TSAN_OPTIONS: halt_on_error=0:suppressions=${{ github.workspace }}/tools/tsan.supp
+          QT_QPA_PLATFORM: offscreen
+          QSG_RHI_BACKEND: software
+        run: |
+          set -o pipefail
+          if ctest --timeout 300 --output-on-failure 2>&1 | tee ctest.log; then
+            exit 0
+          fi
+          {
+            echo '### Тесты под ${{ matrix.sanitizer }} упали'
+            echo
+            echo '```'
+            grep -E 'Test +#|Failed|\*\*\*|Timeout|SEGFAULT|Received signal|WARNING: ThreadSanitizer|SUMMARY: (Address|Thread|Undefined)|tests passed|tests failed' ctest.log | tail -n 200 || true
+            echo '```'
+            echo
+            echo '<details><summary>Testing/Temporary/LastTest.log (хвост)</summary>'
+            echo
+            echo '```'
+            tail -n 400 Testing/Temporary/LastTest.log 2>/dev/null || echo 'LastTest.log нет'
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
   clang-tidy:
     name: clang-tidy

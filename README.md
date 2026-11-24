@@ -128,14 +128,23 @@ Release, MinGW, Windows 11 (замеры 22.11.2026, `build/Release/bench_perf.e
 
 ## Установка
 
-Готовая сборка для Windows — `MyCodeApp-<версия>-win64-portable.zip` в
-[Releases](https://github.com/Alexey-Izilianov/MyCodeApp/releases): распаковать
-и запустить `appMyCodeApp.exe`. Архив портативный — настройки хранятся в папке
-`data` рядом с программой. Сборка, выложенная в Releases, идёт без модели
-(вложения GitHub ограничены 2 ГБ): модель после распаковки ставит
-`tools\fetch-model.ps1` при первом запуске с явного согласия, либо ассистент
-работает через внешнюю Ollama/сервер. Полный архив с моделью собирается
-локально: `./tools/package.ps1` (см. ниже).
+Готовые сборки — в
+[Releases](https://github.com/Alexey-Izilianov/MyCodeApp/releases):
+
+- **Windows**: `MyCodeApp-<версия>-win64-setup.exe` — установщик (Program Files,
+  ярлыки в меню и на рабочем столе, удаление через «Программы и компоненты»);
+  либо `MyCodeApp-<версия>-win64-portable.zip` — распаковать и запустить
+  `appMyCodeApp.exe`. Архив портативный: настройки хранятся в папке `data`
+  рядом с программой.
+- **Linux**: `mycodeapp_<версия>_amd64.deb` — для Ubuntu 22.04+, Debian 11+ и
+  Astra Linux 1.8 (`sudo apt install ./mycodeapp_<версия>_amd64.deb`), ставится
+  в `/opt/mycodeapp` с ярлыком в меню и командой `mycodeapp`. Для Astra Linux
+  1.7 (glibc 2.28) пакет собирается на самой Astra — `tools/astra/package.sh`.
+
+Сборки в Releases идут без модели (вложения GitHub ограничены 2 ГБ): модель
+после установки ставит `tools\fetch-model.ps1` при первом запуске с явного
+согласия, либо ассистент работает через внешнюю Ollama/сервер. Полный архив с
+моделью собирается локально: `./tools/package.ps1` (см. ниже).
 
 Чтобы открывать файлы из Проводника: «Файл → Добавить в «Открыть с помощью»»
 (пишет в реестр текущего пользователя, права администратора не нужны).
@@ -159,6 +168,16 @@ build/Release/appMyCodeApp.exe [--profile имя] [--software] [файл|пап�
 Полный пакет с моделью: `./tools/package.ps1 -QtBin C:/Qt/6.12.0/mingw_64/bin`
 → `dist/MyCodeApp-<версия>-win64-portable.zip` (2,5 ГБ). Для сборки без модели —
 флаг `-SkipModel`.
+
+Установщик Windows (Inno Setup 6): из той же папки, что делает `package.ps1`:
+```powershell
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+  /DMyAppVersion=1.0.3 /DStageDir="$PWD\dist\MyCodeApp-1.0.3-win64" /DOutputDir="$PWD\dist" `
+  tools\installer.iss
+```
+→ `dist/MyCodeApp-<версия>-win64-setup.exe`. Папка `data` в установщик не
+попадает: в Program Files она недоступна для записи, поэтому настройки идут в
+профиль пользователя.
 
 Astra Linux: скрипты в [tools/astra](tools/astra) — Qt 6.11 из исходников
 (`build-deps.sh`, `build-qt.sh`, один раз), затем `build.sh` (сборка и тесты)
@@ -224,10 +243,20 @@ ctest --test-dir build/Release
 Замеры производительности — `bench_perf.exe`; генерации модели —
 `bench_localmodel.exe` (не автотесты, модель в пакете).
 
-GitHub Actions ([ci.yml](.github/workflows/ci.yml)): сборка и пакеты на Windows
-(MinGW), Linux (GCC) и macOS (Clang); Linux с ASan+UBSan и TSan — отдельно,
-информационно. По тегу `v*` — портативный ZIP в Releases (без модели:
-ограничение вложений GitHub 2 ГБ). Тесты по решению владельца гоняются локально — перед каждым релизом: 15/15 на текущем коммите.
+GitHub Actions ([ci.yml](.github/workflows/ci.yml)): сборка и тесты 15/15 на
+Windows (MinGW), Linux (GCC) и macOS (Clang). Тесты с окнами идут на
+offscreen-платформе с программной отрисовкой — на раннерах нет интерактивного
+рабочего стола. Linux с ASan+UBSan и TSan — отдельно; TSan информационный (Qt
+не размечен под TSan, его COW-контейнеры дают заведомые срабатывания, они
+подавлены в `tools/tsan.supp`). По тегу `v*` в Releases публикуются ZIP,
+установщик `.exe` и `.deb` (без модели: ограничение вложений GitHub 2 ГБ).
+Если тест упал, разбор пишется в step summary прогона.
+
+`.deb` для CI собирает `tools/package-deb.sh` на Ubuntu 22.04 (glibc 2.35) —
+это же собирает пакет локально на любом Debian/Ubuntu:
+```bash
+./tools/package-deb.sh            # BUILD=build, OUT=dist
+```
 
 ## Архитектура
 
@@ -244,6 +273,7 @@ src/assistant/  офлайн-ассистент: встроенная llama.cpp 
 qml/            интерфейс (вкладки, боковая панель, отдельные окна)
 include/        API плагинов
 tools/astra/    сборка и пакет для Astra Linux
+tools/          упаковка: package.ps1 (ZIP), installer.iss (.exe), package-deb.sh (.deb)
 ```
 
 - **Текст** — собственная piece table: правка не копирует существующий кусок;

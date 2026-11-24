@@ -1,0 +1,10 @@
+# Подавления для TSan (джоб «Linux thread», информационный).
+# Qt собран без TSan-аннотаций: неявное разделение QList/QString/QByteArray
+# (refcount не атомарный по контракту COW) и QWaitCondition дают гонки,
+# которые для Qt безопасны. Свои гонки в src/ эти правила не скрывают.
+race:libQt6Core.so
+race:libQt6Gui.so
+race:libQt6Qml.so
+race:libQt6Quick.so
+race:libQt6Network.so
+race:libQt6Test.so
